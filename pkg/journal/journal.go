@@ -16,6 +16,7 @@ const (
 
 var (
 	ErrInvalidChecksum error = errors.New("Invalid checksum")
+	ErrDamagedChunk    error = errors.New("Damaged Chunk")
 )
 
 /*
@@ -91,11 +92,6 @@ func (l *Journal) Append(data []byte) error {
 func (l *Journal) newDataWriter(data []byte, offset *uint) func(chunkType byte) error {
 	datalen := uint(len(data))
 	return func(chunkType byte) error {
-		// align block
-		if err := l.alignBlock(); err != nil {
-			return err
-		}
-
 		chunkDataLen := l.freeSpaceInBlock() - ChunkHeaderLen
 		if datalen < *offset+chunkDataLen {
 			chunkDataLen = datalen - (*offset)
@@ -131,6 +127,10 @@ func (l *Journal) writeChunk(chunk *Chunk) error {
 	}
 
 	if err := l.write(chunk.ToBytes()); err != nil {
+		return err
+	}
+
+	if err := l.alignBlock(); err != nil {
 		return err
 	}
 

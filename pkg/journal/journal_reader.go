@@ -14,6 +14,9 @@ type JournalReader struct {
 }
 
 func (r *JournalReader) ReplayAt(blkIdx int64, fn func([]byte)) error {
+	if r.fSize == 0 {
+		return nil
+	}
 	if err := r.resetOffset(blkIdx, 0); err != nil {
 		return err
 	}
@@ -26,14 +29,16 @@ func (r *JournalReader) ReplayAt(blkIdx int64, fn func([]byte)) error {
 		if err != nil {
 			return err
 		}
-		fn(d)
+		if fn != nil {
+			fn(d)
+		}
 	}
 
 	return nil
 }
 
 func (r *JournalReader) resetOffset(blkIdx, offset int64) error {
-	if _, err := r.f.Seek(r.blkIdx*BlockSize+offset, 0); err != nil {
+	if _, err := r.f.Seek(blkIdx*BlockSize+offset, 0); err != nil {
 		return err
 	}
 	r.blkIdx = blkIdx
@@ -85,14 +90,22 @@ func (r *JournalReader) readOneRecord() ([]byte, error) {
 }
 
 func (r *JournalReader) readOneChunk() (*Chunk, error) {
-	headerB := make([]byte, 7)
-	if _, err := r.f.Read(headerB); err != nil {
+	headerB := make([]byte, ChunkHeaderLen)
+	n, err := r.f.Read(headerB)
+	if err != nil {
 		return nil, err
+	}
+	if n != ChunkHeaderLen {
+		return nil, ErrDamagedChunk
 	}
 	ch := NewChunkHeader(headerB)
 	data := make([]byte, ch.DataLen())
-	if _, err := r.f.Read(data); err != nil {
+	n, err = r.f.Read(data)
+	if err != nil {
 		return nil, err
+	}
+	if n != int(ch.DataLen()) {
+		return nil, ErrDamagedChunk
 	}
 	checkData := append(ch.ctype[:], ch.len[:]...)
 	checkData = append(checkData, data...)
