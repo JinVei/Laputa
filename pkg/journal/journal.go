@@ -15,15 +15,15 @@ const (
 )
 
 var (
-	ErrInvalidChecksum error = errors.New("Invalid checksum")
+	ErrInvalidChecksum error = errors.New("Invalid Checksum")
 	ErrDamagedChunk    error = errors.New("Damaged Chunk")
 )
 
 /*
-  Journal use for implement WAL purpose
-  Journal write record to file.
+  Journal used for implementing WAL purpose
   Journal file consist of amount of blocks which has fixed 32K size.
   Every block consists of chunks. And records would store in chunks.
+  A large record would split into multi chunks with sequence.
 */
 type Journal struct {
 	f      *os.File
@@ -32,6 +32,7 @@ type Journal struct {
 	path   string
 }
 
+// Must call method Journal.Close after running out
 func New(path string) (*Journal, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
@@ -45,11 +46,21 @@ func New(path string) (*Journal, error) {
 	}, nil
 }
 
+func (l *Journal) Close() {
+	if l.f != nil {
+		_ = l.f.Sync()
+		_ = l.f.Close()
+		l.f = nil
+	}
+}
+
 func (l *Journal) InitAndRecover(fn func([]byte)) error {
 	r, err := l.NewJournalReader()
 	if err != nil {
 		return err
 	}
+	defer r.Close()
+
 	err = r.ReplayAt(0, fn)
 	if err != nil {
 		return err
@@ -166,6 +177,17 @@ func (l *Journal) alignBlock() error {
 	return nil
 }
 
+func (l *Journal) Truncate(offset int64) error {
+	if err := l.f.Truncate(offset); err != nil {
+		return err
+	}
+	if err := l.InitAndRecover(nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Must call method JournalReader.Close after running out
 func (l *Journal) NewJournalReader() (*JournalReader, error) {
 	f, err := os.Open(l.path)
 	if err != nil {
@@ -181,4 +203,12 @@ func (l *Journal) NewJournalReader() (*JournalReader, error) {
 	}, nil
 }
 
-// |term:varint|index:varint|dataLen:varint|data:bytes|
+func (r *JournalReader) Close() error {
+	if r.f != nil {
+		if err := r.f.Close(); err != nil {
+			return err
+		}
+		r.f = nil
+	}
+	return nil
+}

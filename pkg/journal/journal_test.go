@@ -2,7 +2,9 @@ package journal
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
+	"time"
 )
 
 func TestLog(t *testing.T) {
@@ -52,20 +54,21 @@ func TestAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// s1 := rand.NewSource(time.Now().UnixNano())
-	// r1 := rand.New(s1)
-	// for i := 0; i < 50; i++ {
-	// 	r := r1.Intn(100)
-	// 	size := r * 1024
-	// 	d := make([]byte, size)
-	// 	if err := l.Append(d); err != nil {
-	// 		t.Fatal(err)
-	// 	}
-	// }
-	d := make([]byte, 100*1024)
-	if err := l.Append(d); err != nil {
-		t.Fatal(err)
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	for i := 0; i < 50; i++ {
+		r := r1.Intn(100)
+		size := r * 1024
+		d := make([]byte, size)
+		fmt.Println(r)
+		if err := l.Append(d); err != nil {
+			t.Fatal(err)
+		}
 	}
+	// d := make([]byte, 100*1024)
+	// if err := l.Append(d); err != nil {
+	// 	t.Fatal(err)
+	// }
 
 }
 

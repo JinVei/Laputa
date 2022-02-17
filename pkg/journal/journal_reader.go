@@ -17,15 +17,15 @@ func (r *JournalReader) ReplayAt(blkIdx int64, fn func([]byte)) error {
 	if r.fSize == 0 {
 		return nil
 	}
-	if err := r.resetOffset(blkIdx, 0); err != nil {
+	if err := r.ResetOffset(blkIdx, 0); err != nil {
 		return err
 	}
 
 	if err := r.skipIncompleteChunk(); err != nil {
 		return err
 	}
-	for !r.isEnd() {
-		d, err := r.readOneRecord()
+	for !r.IsEnd() {
+		d, err := r.ReadOneRecord()
 		if err != nil {
 			return err
 		}
@@ -37,7 +37,7 @@ func (r *JournalReader) ReplayAt(blkIdx int64, fn func([]byte)) error {
 	return nil
 }
 
-func (r *JournalReader) resetOffset(blkIdx, offset int64) error {
+func (r *JournalReader) ResetOffset(blkIdx, offset int64) error {
 	if _, err := r.f.Seek(blkIdx*BlockSize+offset, 0); err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (r *JournalReader) skipIncompleteChunk() error {
 			return err
 		}
 		if chunk.Type() == ChunkTypeFirst || chunk.Type() == ChunkTypeFull {
-			if err := r.resetOffset(curtBlkIdn, curtOffset); err != nil {
+			if err := r.ResetOffset(curtBlkIdn, curtOffset); err != nil {
 				return err
 			}
 			return nil
@@ -75,7 +75,7 @@ func (r *JournalReader) alignBlock() error {
 	return nil
 }
 
-func (r *JournalReader) readOneRecord() ([]byte, error) {
+func (r *JournalReader) ReadOneRecord() ([]byte, error) {
 	buf := []byte{}
 	for {
 		chunk, err := r.readOneChunk()
@@ -128,7 +128,7 @@ func (r *JournalReader) readOneChunk() (*Chunk, error) {
 	return c, nil
 }
 
-func (r *JournalReader) isEnd() bool {
+func (r *JournalReader) IsEnd() bool {
 	return r.fSize <= r.blkIdx*BlockSize+r.offset
 }
 
@@ -140,4 +140,8 @@ func verifyChecksum(data []byte, checksum []byte) bool {
 		}
 	}
 	return true
+}
+
+func (r *JournalReader) GetOffset() int64 {
+	return r.blkIdx*BlockSize + r.offset
 }
