@@ -6,23 +6,25 @@ import (
 	"errors"
 	"time"
 
+	"Laputa/pkg/raft/store"
+
 	"github.com/gogo/protobuf/proto"
 )
 
 type Peer struct {
-	ID int
+	ID   int
+	Addr string
 	raftPb.RaftClient
+	PrevLogIdx  uint64
+	PrevLogTerm uint64
 }
 
 // todo: how to recover raft_state from journal
-// todo: how to run when raft role turn to leader
 type RaftState struct {
-	id uint64
+	id int64
 	//locker        sync.Mutex
 	currentTerm uint64
-	voteFor     uint64
-	//electTicker time.Ticker
-
+	voteFor     int64
 	// recover from journal
 	commitIndex  uint64
 	lastApplied  uint64
@@ -36,6 +38,18 @@ type RaftState struct {
 	currentRole     int
 
 	electLastReset time.Time
+}
+
+func newState(logPath string, electTimeout time.Duration) (*RaftState, error) {
+	s := RaftState{}
+	j, err := journal.New(logPath)
+	if err != nil {
+		return nil, err
+	}
+	s.journal = j
+	s.electTimeout = electTimeout
+	s.stateMachine = store.NewDemoStateMachine()
+	return &s, nil
 }
 
 func (s *RaftState) GetCurrentRole() int {

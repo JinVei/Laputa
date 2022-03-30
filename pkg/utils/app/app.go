@@ -186,9 +186,6 @@ func (a *App) runCommand(cmd *cobra.Command, args []string) {
 	}
 
 	if a.runFunc != nil {
-		if !a.silence {
-			fmt.Printf("%v Log data will now stream in as it occurs:\n", progressMessage)
-		}
 		if err := a.runFunc(a.basename); err != nil {
 			fmt.Printf("%v %v\n", color.RedString("Error:"), err)
 			os.Exit(1)

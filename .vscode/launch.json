@@ -9,8 +9,8 @@
             "type": "go",
             "request": "launch",
             "mode": "debug",
-            "program": "${workspaceFolder}/cmd/scheduler/main.go",
-            "env": {"MY_SCHEDULER_BUILD_TIME":"now"},
+            "program": "${workspaceFolder}/cmd/raft_server/main.go",
+            //"env": {"MY_SCHEDULER_BUILD_TIME":"now"},
             "args": ["--config=./config.yaml"]
         }
     ]
