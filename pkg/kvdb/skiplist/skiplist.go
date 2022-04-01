@@ -1,6 +1,8 @@
 package skiplist
 
-import "math/rand"
+import (
+	"math/rand"
+)
 
 type Key interface {
 	//Hash() int
@@ -9,7 +11,7 @@ type Key interface {
 	// ret > 0 greater than
 	Compare(k1 Key) int
 	// get the real instance of the 'key' obj
-	Restore() interface{}
+	Instance() interface{}
 }
 
 type ISkiplist interface {
@@ -110,6 +112,7 @@ func (l *Skiplist) Insert(key Key) {
 		for i := l.maxHeight; i < height; i++ {
 			prev = append(prev, l.head)
 		}
+		l.maxHeight = height
 	}
 
 	for i := 0; i < height; i++ {
@@ -144,6 +147,6 @@ func (k emptyKey) Compare(k1 Key) int {
 	return -1
 }
 
-func (k emptyKey) Restore() interface{} {
+func (k emptyKey) Instance() interface{} {
 	return k
 }

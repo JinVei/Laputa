@@ -1,6 +1,7 @@
 package skiplist
 
 import (
+	"container/list"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -10,7 +11,7 @@ import (
 type NKey int
 
 func (k NKey) Compare(k1 Key) int {
-	nk1, ok1 := k1.Restore().(NKey)
+	nk1, ok1 := k1.Instance().(NKey)
 
 	if !ok1 {
 		panic("Panic in Compare")
@@ -25,7 +26,7 @@ func (k NKey) Compare(k1 Key) int {
 	}
 }
 
-func (k NKey) Restore() interface{} {
+func (k NKey) Instance() interface{} {
 	return k
 }
 
@@ -56,7 +57,7 @@ func TestSkiplist(t *testing.T) {
 	}
 
 	t.Log("Test level len")
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 500000; i++ {
 		l.Insert(NKey(rand.Int()))
 	}
 
@@ -70,4 +71,26 @@ func TestSkiplist(t *testing.T) {
 	}
 	t.Log(levelCnt)
 	fmt.Println("finish!")
+}
+
+func TestMap(t *testing.T) {
+	// levelCnt := make(map[int]int)
+	// for i := 0; i < 50000; i++ {
+	// 	levelCnt[i] = i * 2
+	// }
+	l := list.New()
+	for i := 0; i < 500000; i++ {
+		l.PushBack(rand.Int())
+	}
+	fmt.Println("finish!!!!")
+}
+
+func TestSkiplist1(t *testing.T) {
+	l := New()
+
+	for i := 0; i < 500000; i++ {
+		l.Insert(NKey(rand.Int()))
+	}
+
+	fmt.Println("finish!!!!")
 }
