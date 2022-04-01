@@ -40,7 +40,7 @@ type RaftState struct {
 	electLastReset time.Time
 }
 
-func newState(logPath string, electTimeout time.Duration) (*RaftState, error) {
+func newState(logPath string, electTimeout time.Duration, id int64) (*RaftState, error) {
 	s := RaftState{}
 	j, err := journal.New(logPath)
 	if err != nil {
@@ -49,6 +49,7 @@ func newState(logPath string, electTimeout time.Duration) (*RaftState, error) {
 	s.journal = j
 	s.electTimeout = electTimeout
 	s.stateMachine = store.NewDemoStateMachine()
+	s.id = id
 	return &s, nil
 }
 

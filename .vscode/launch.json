@@ -11,7 +11,7 @@
             "mode": "debug",
             "program": "${workspaceFolder}/cmd/raft_server/main.go",
             //"env": {"MY_SCHEDULER_BUILD_TIME":"now"},
-            "args": ["--config=./config.yaml"]
+            "args": ["--config=/Users/vei/Documents/Github/Jinvei/Laputa/bin/raft3/config.yaml"]
         }
     ]
 }

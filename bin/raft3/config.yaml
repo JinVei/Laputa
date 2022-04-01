@@ -1,5 +1,5 @@
-id: 2
-ListenAddr: 127.0.0.1:6602
+id: 3
+ListenAddr: 127.0.0.1:6603
 initialCluster:
 - id: 1
   addr: 127.0.0.1:6601

@@ -52,7 +52,7 @@ func New(c *config.Config) (*Server, error) {
 		}
 	}
 
-	state, err := newState(c.LogPath, c.ElectTimeout)
+	state, err := newState(c.LogPath, c.ElectTimeout, c.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (s *Server) Run() error {
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
 	raftPb.RegisterRaftServer(grpcServer, s)
-	_ = s.becomeFollower(s.state.currentTerm)
+	_ = s.becomeFollower(1)
 	err = grpcServer.Serve(listener)
 
 	return err
@@ -98,11 +98,14 @@ func (s *Server) RequestVote(ctx context.Context, req *raftPb.VoteRequest) (*raf
 
 	if req.Term < s.state.currentTerm ||
 		req.LastLogTerm < s.state.lastLogTerm ||
-		req.LastLogIndex < s.state.lastLogIndex ||
-		(0 <= s.state.voteFor && s.state.voteFor != req.CandidateId) {
+		req.LastLogIndex < s.state.lastLogIndex {
 
 		resp.Term = s.state.GetCurrentTerm()
 		resp.VoteGranted = false
+		if s.state.currentTerm < req.Term {
+			s.updateTerm(req.Term)
+		}
+
 		return resp, nil
 	}
 
@@ -113,7 +116,7 @@ func (s *Server) RequestVote(ctx context.Context, req *raftPb.VoteRequest) (*raf
 
 	s.state.ResetElectTimeout()
 
-	s.state.currentTerm = req.Term
+	s.updateTerm(req.Term)
 	s.state.voteFor = req.CandidateId
 	resp.Term = s.state.currentTerm
 	resp.VoteGranted = true
@@ -211,12 +214,18 @@ func (s *Server) resolveConflictEntry(entries []*raftPb.Entry, prevLogTerm, prev
 func (s *Server) becomeFollower(term uint64) error {
 	log.Info("Become Follewer", "term", term)
 	s.state.currentRole = RaftRoleFollower
-	//s.state.currentTerm = term
-	s.state.voteFor = -1
+	//s.state.voteFor = -1
 	s.state.electLastReset = time.Now()
 
-	go s.runElectionTimer()
+	s.updateTerm(term)
 	return nil
+}
+
+func (s *Server) updateTerm(term uint64) {
+	if s.state.currentTerm < term {
+		s.state.currentTerm = term
+		go s.runElectionTimer()
+	}
 }
 
 func (s *Server) runElectionTimer() {
@@ -244,7 +253,7 @@ func (s *Server) checkElection(term uint64) bool {
 		return false
 	}
 
-	if term != s.state.currentTerm {
+	if term < s.state.currentTerm {
 		log.Info("stop election ticker becase term stale", "term", term, "state", s.state.currentRole)
 		return false
 	}

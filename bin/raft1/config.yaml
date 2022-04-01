@@ -1,7 +1,9 @@
 id: 1
-ListenAddr: 127.0.0.1:6677
+ListenAddr: 127.0.0.1:6601
 initialCluster:
 - id: 1
-  addr: 127.0.0.1:6677
+  addr: 127.0.0.1:6601
 - id: 2
-  addr: 127.0.0.1:6678
+  addr: 127.0.0.1:6602
+- id: 3
+  addr: 127.0.0.1:6603
