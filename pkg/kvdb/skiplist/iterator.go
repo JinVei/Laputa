@@ -1,15 +1,5 @@
 package skiplist
 
-type IIterator interface {
-	//Seek(target Key)
-	Next()
-	//Prev()
-	Key() Key
-	Valid() bool
-	//SeekToFirst()
-	//SeekToLast()
-}
-
 type Iterator struct {
 	list *Skiplist
 	p    *Node

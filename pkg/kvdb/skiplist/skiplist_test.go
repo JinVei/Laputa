@@ -1,6 +1,7 @@
 package skiplist
 
 import (
+	"Laputa/pkg/utils/random"
 	"container/list"
 	"fmt"
 	"math/rand"
@@ -75,11 +76,11 @@ func TestSkiplist(t *testing.T) {
 
 func TestMap(t *testing.T) {
 	// levelCnt := make(map[int]int)
-	// for i := 0; i < 50000; i++ {
+	// for i := 0; i < 5000000; i++ {
 	// 	levelCnt[i] = i * 2
 	// }
 	l := list.New()
-	for i := 0; i < 500000; i++ {
+	for i := 0; i < 5000000; i++ {
 		l.PushBack(rand.Int())
 	}
 	fmt.Println("finish!!!!")
@@ -87,10 +88,14 @@ func TestMap(t *testing.T) {
 
 func TestSkiplist1(t *testing.T) {
 	l := New()
+	random := random.New(uint32(time.Now().Unix()))
 
-	for i := 0; i < 500000; i++ {
-		l.Insert(NKey(rand.Int()))
+	for i := 0; i < 5000000; i++ {
+		l.Insert(NKey(random.Next()))
+		//l.Insert(NKey(i))
+		//random.Next()
+		//l.Insert(NKey(rand.Int()))
 	}
 
-	fmt.Println("finish!!!!")
+	fmt.Println("finish!!!")
 }

@@ -1,32 +1,15 @@
 package skiplist
 
 import (
-	"math/rand"
+	"Laputa/pkg/utils/random"
+	"time"
 )
-
-type Key interface {
-	//Hash() int
-	// ret < 0 less than
-	// ret == 0 equal
-	// ret > 0 greater than
-	Compare(k1 Key) int
-	// get the real instance of the 'key' obj
-	Instance() interface{}
-}
-
-type ISkiplist interface {
-	Insert(key Key)
-	Contains(key Key) bool
-	FindGreaterOrEqual(key Key) (node *Node, prev []*Node)
-	FindLessThan(key Key) *Node
-	Iterator() IIterator
-	Find(k Key) *Node
-}
 
 type Skiplist struct {
 	head      *Node
 	compare   Comparator
 	maxHeight int
+	rand      *random.Random
 }
 
 type Comparator func(k1 []byte, k2 []byte) int
@@ -35,6 +18,7 @@ func New() ISkiplist {
 	l := &Skiplist{}
 	l.head = NewNode(emptyKey{}, KMaxHeight)
 	l.maxHeight = 1
+	l.rand = random.New(uint32(time.Now().Unix()))
 	return l
 }
 
@@ -52,8 +36,7 @@ func (l *Skiplist) Iterator() IIterator {
 	return it
 }
 
-func (l *Skiplist) FindGreaterOrEqual(key Key) (*Node, []*Node) {
-	prev := make([]*Node, l.GetMaxHeight())
+func (l *Skiplist) FindGreaterOrEqual(key Key, prev []*Node) *Node {
 	x := l.head
 	copy(prev, l.head.next)
 	level := l.GetMaxHeight() - 1
@@ -64,9 +47,11 @@ func (l *Skiplist) FindGreaterOrEqual(key Key) (*Node, []*Node) {
 			x = next
 			continue
 		} else {
-			prev[level] = x
+			if prev != nil {
+				prev[level] = x
+			}
 			if level == 0 {
-				return next, prev
+				return next
 			}
 			level--
 		}
@@ -93,24 +78,25 @@ func (l *Skiplist) FindLessThan(key Key) *Node {
 	}
 }
 
-func getRandomHeight() int {
+func (l *Skiplist) getRandomHeight() int {
 	StepProbability := 4 // 1/4
 	height := 1
 	// random height
-	for height < KMaxHeight && rand.Int()%StepProbability == 0 {
+	for height < KMaxHeight && l.rand.OneIn(StepProbability) {
 		height++
 	}
 	return height
 }
 
 func (l *Skiplist) Insert(key Key) {
-	_, prev := l.FindGreaterOrEqual(key)
+	prev := make([]*Node, KMaxHeight)
+	_ = l.FindGreaterOrEqual(key, prev)
 
-	height := getRandomHeight()
+	height := l.getRandomHeight()
 	o := NewNode(key, height)
 	if l.maxHeight < height {
 		for i := l.maxHeight; i < height; i++ {
-			prev = append(prev, l.head)
+			prev[i] = l.head
 		}
 		l.maxHeight = height
 	}
