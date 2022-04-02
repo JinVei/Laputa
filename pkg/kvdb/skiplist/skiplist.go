@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+const (
+	KMaxHeight = 12
+)
+
+type Key interface{}
+
 type Skiplist struct {
 	head      *Node
 	compare   Comparator
@@ -12,24 +18,30 @@ type Skiplist struct {
 	rand      *random.Random
 }
 
-type Comparator func(k1 []byte, k2 []byte) int
+/*
+if k1 < k2,  ret < 0 (-1)
+if k1 == k2, ret == 0
+if k1 > k2,  0 < ret (+1)
+*/
+type Comparator func(k1, k2 interface{}) int
 
-func New() ISkiplist {
+func New(cmp Comparator) *Skiplist {
 	l := &Skiplist{}
 	l.head = NewNode(emptyKey{}, KMaxHeight)
 	l.maxHeight = 1
 	l.rand = random.New(uint32(time.Now().Unix()))
+	l.compare = cmp
 	return l
 }
 
 func NewNode(k Key, height int) *Node {
 	x := &Node{}
 	x.key = k
-	x.next = make([]*Node, height)
+	x.next = make([]*Node, height, height)
 	return x
 }
 
-func (l *Skiplist) Iterator() IIterator {
+func (l *Skiplist) Iterator() *Iterator {
 	it := &Iterator{}
 	it.list = l
 	it.p = l.head.Next(0)
@@ -43,7 +55,7 @@ func (l *Skiplist) FindGreaterOrEqual(key Key, prev []*Node) *Node {
 
 	for {
 		next := x.Next(level)
-		if next != nil && next.key.Compare(key) < 0 {
+		if next != nil && l.compare(next.Key(), key) <= 0 {
 			x = next
 			continue
 		} else {
@@ -67,7 +79,7 @@ func (l *Skiplist) FindLessThan(key Key) *Node {
 	level := l.GetMaxHeight() - 1
 	for {
 		next := x.Next(level)
-		if next != nil && 0 <= key.Compare(next.key) {
+		if next != nil && l.compare(next.Key(), key) < 0 {
 			x = next
 			continue
 		}
@@ -109,7 +121,7 @@ func (l *Skiplist) Insert(key Key) {
 
 func (l *Skiplist) Find(k Key) *Node {
 	x := l.FindLessThan(k)
-	if x != nil && x.Key().Compare(k) == 0 {
+	if x.next[0] != nil && x != l.head && l.compare(x.next[0].Key(), k) == 0 {
 		return x
 	}
 	return nil
@@ -133,6 +145,6 @@ func (k emptyKey) Compare(k1 Key) int {
 	return -1
 }
 
-func (k emptyKey) Instance() interface{} {
+func (k emptyKey) Instance() Key {
 	return k
 }
