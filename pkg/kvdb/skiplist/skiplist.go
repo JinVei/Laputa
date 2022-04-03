@@ -19,9 +19,9 @@ type Skiplist struct {
 }
 
 /*
-if k1 < k2,  ret < 0 (-1)
+if k1 < k2,  ret < 0 (+1)
 if k1 == k2, ret == 0
-if k1 > k2,  0 < ret (+1)
+if k1 > k2,  0 < ret (-1)
 */
 type Comparator func(k1, k2 interface{}) int
 
@@ -121,8 +121,8 @@ func (l *Skiplist) Insert(key Key) {
 
 func (l *Skiplist) Find(k Key) *Node {
 	x := l.FindLessThan(k)
-	if x.next[0] != nil && x != l.head && l.compare(x.next[0].Key(), k) == 0 {
-		return x
+	if x.next[0] != nil && l.compare(x.next[0].Key(), k) == 0 {
+		return x.next[0]
 	}
 	return nil
 }
