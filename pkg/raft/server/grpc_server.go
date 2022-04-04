@@ -2,7 +2,7 @@ package server
 
 import (
 	raftPb "Laputa/api/raft/v1alpha1"
-	"Laputa/pkg/utils/log"
+	"Laputa/pkg/util/log"
 	"context"
 	"errors"
 	"net"

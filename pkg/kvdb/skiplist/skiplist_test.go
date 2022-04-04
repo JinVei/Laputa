@@ -1,7 +1,7 @@
 package skiplist
 
 import (
-	"Laputa/pkg/utils/random"
+	"Laputa/pkg/util/random"
 	"container/list"
 	"fmt"
 	"math/rand"

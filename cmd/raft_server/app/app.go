@@ -3,9 +3,9 @@ package app
 import (
 	"Laputa/cmd/raft_server/app/options"
 	"Laputa/pkg/raft/server"
-	"Laputa/pkg/utils/app"
-	"Laputa/pkg/utils/log"
-	"Laputa/pkg/utils/signal"
+	"Laputa/pkg/util/app"
+	"Laputa/pkg/util/log"
+	"Laputa/pkg/util/signal"
 	"os"
 )
 

@@ -2,7 +2,7 @@ package options
 
 import (
 	"Laputa/cmd/raft_server/app/config"
-	"Laputa/pkg/utils/app"
+	"Laputa/pkg/util/app"
 	"log"
 	"time"
 

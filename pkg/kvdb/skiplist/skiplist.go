@@ -1,7 +1,7 @@
 package skiplist
 
 import (
-	"Laputa/pkg/utils/random"
+	"Laputa/pkg/util/random"
 	"time"
 )
 

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"Laputa/pkg/utils/app/version"
+	"Laputa/pkg/util/app/version"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
