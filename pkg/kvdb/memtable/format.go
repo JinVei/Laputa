@@ -59,7 +59,7 @@ func DecodeEntry(buf []byte) Entry {
 	idx := uint32(n)
 	e.ukeyOffs = uint32(idx)
 	idx = e.ukeyOffs + uint32(len) - 8
-	tag := binary.BigEndian.Uint64(e.buf[idx:])
+	tag := binary.LittleEndian.Uint64(e.buf[idx:])
 	e.tag = tag
 	idx += 8
 	e.valueOffs = idx
@@ -98,7 +98,7 @@ func EncodeMemtableKey(uKey []byte, sequence uint64, vtype ValueType) []byte {
 	offset := varintLen
 	copy(buf[offset:], uKey)
 	offset += int(internalKeylen) - 8
-	binary.BigEndian.PutUint64(buf[offset:], tag)
+	binary.LittleEndian.PutUint64(buf[offset:], tag)
 
 	return buf
 }

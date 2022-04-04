@@ -101,3 +101,15 @@ func BenchmarkMemtablePutGet(b *testing.B) {
 		mtable.Get(lk)
 	}
 }
+
+func BenchmarkMemtableGet(b *testing.B) {
+	key := []byte("im key")
+	//value := []byte("im value")
+	lk := LookupKey{}
+	lk.Key = key
+	mtable := New(nil)
+	for i := 0; i < b.N; i++ {
+		lk.Sequence = uint64(i)
+		mtable.Get(lk)
+	}
+}
