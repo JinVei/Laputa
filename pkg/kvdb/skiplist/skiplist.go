@@ -19,9 +19,9 @@ type Skiplist struct {
 }
 
 /*
-if k1 < k2,  ret < 0 (+1)
+if k1 < k2,  ret < 0 (-1)
 if k1 == k2, ret == 0
-if k1 > k2,  0 < ret (-1)
+if k1 > k2,  0 < ret (+1)
 */
 type Comparator func(k1, k2 interface{}) int
 

@@ -4,16 +4,11 @@ import (
 	"Laputa/pkg/kvdb/skiplist"
 	"bytes"
 	"encoding/binary"
+
+	"Laputa/pkg/kvdb/common"
 )
 
-/*
-if k1 < k2,  ret < 0 (+1)
-if k1 == k2, ret == 0
-if k1 > k2,  0 < ret (-1)
-*/
-type UserKeyCompare func(k1, k2 []byte) int
-
-func New(cmp UserKeyCompare) *Memtable {
+func New(cmp common.Compare) *Memtable {
 	mtable := &Memtable{}
 	mtable.userKeyCompare = cmp
 	if mtable.userKeyCompare == nil {
@@ -27,7 +22,7 @@ type Memtable struct {
 	table          *skiplist.Skiplist
 	ref            int
 	allocated      uint64
-	userKeyCompare UserKeyCompare
+	userKeyCompare common.Compare
 }
 
 func (t *Memtable) Ref() {

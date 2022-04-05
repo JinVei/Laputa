@@ -2,6 +2,24 @@ package log
 
 type RecordType uint8
 
+// Log format:
+//  --- Block ----  <- 32K aligned
+//  --- Block ----
+//  ---  ...  ----
+//  --- Block ----
+
+// Block format:
+//  ---- Block ----
+//    -- record --
+//    -- record --
+//    --  ...   --
+//    -- record --
+//  ---- Block ----   <- 32K aligned
+
+// Record format:
+//   ---  header    ---  (crc:4|length:2|type:1) 7 bytes
+//   --- data-slice ---
+
 const (
 	RecordTypeZere = RecordType(0)
 
