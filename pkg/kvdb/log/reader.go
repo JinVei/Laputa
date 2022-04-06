@@ -3,14 +3,9 @@ package log
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"hash/crc32"
 	"io"
 	"os"
-)
-
-var (
-	ErrCorruption = errors.New("Corruption Error")
 )
 
 type Reader struct {

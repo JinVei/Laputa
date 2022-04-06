@@ -1,5 +1,7 @@
 package log
 
+import "errors"
+
 type RecordType uint8
 
 // Log format:
@@ -31,4 +33,8 @@ const (
 	BlockSize = 32768
 	// Header consists of checksum (4 bytes), length (2 bytes), record type (1 byte).
 	HeaderSize = 4 + 2 + 1
+)
+
+var (
+	ErrCorruption = errors.New("Corruption Error")
 )

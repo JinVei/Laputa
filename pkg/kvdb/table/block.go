@@ -20,9 +20,9 @@ type BlockIterator struct {
 	endDataOffset int
 }
 
-func NewBlockIterator(block BlockContent, cmp common.Compare) *BlockIterator {
+func NewBlockIterator(block BlockContent, opts *common.Options) *BlockIterator {
 	iter := &BlockIterator{}
-	iter.compare = cmp
+	iter.compare = opts.KeyComparator
 	if iter.compare == nil {
 		iter.compare = bytes.Compare
 	}
@@ -137,9 +137,20 @@ func (iter *BlockIterator) initRestarts() {
 	iter.numRestarts = binary.LittleEndian.Uint32(iter.block[offset : offset+4])
 	offset -= iter.numRestarts * 4
 
-	iter.restarts = make([]uint32, iter.numRestarts)
+	iter.restarts = iter.restarts[0:0]
 	for i := uint32(0); i < iter.numRestarts; i++ {
-		iter.restarts[i] = binary.LittleEndian.Uint32(iter.block[offset+i*4 : offset+i*4+4])
+		iter.restarts = append(iter.restarts, binary.LittleEndian.Uint32(iter.block[offset+i*4:offset+i*4+4]))
 	}
 	iter.endDataOffset = int(offset)
+}
+
+func (iter *BlockIterator) ResetContent(block BlockContent) {
+
+	iter.block = block
+	iter.blkoffset = 0
+	iter.key.Reset()
+	iter.value.Reset()
+	iter.initRestarts()
+
+	iter.Next()
 }

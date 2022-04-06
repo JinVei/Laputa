@@ -1,6 +1,7 @@
 package table
 
 import (
+	"Laputa/pkg/kvdb/common"
 	"bytes"
 	"strconv"
 	"testing"
@@ -8,25 +9,22 @@ import (
 	"gotest.tools/assert"
 )
 
-/* BUG
-1 shard compare
-2 iter.valid
-3
-*/
-func numberBytesCompare(k1, k2 []byte) int {
+func testNumberBytesCompare(k1, k2 []byte) int {
 	nk1, _ := strconv.Atoi(string(k1))
 	nk2, _ := strconv.Atoi(string(k2))
 	return nk1 - nk2
 }
 
 func TestBlockBuilder(t *testing.T) {
-	builder := NewBlockBuilder()
+	opts := common.NewDefaultOptions()
+	opts.KeyComparator = testNumberBytesCompare
+	builder := NewBlockBuilder(opts)
 	for i := 10; i < 500; i++ {
 		builder.Add([]byte(strconv.Itoa(i)), []byte(strconv.Itoa(i*2)))
 	}
 	block := builder.Finish()
 
-	iter := NewBlockIterator(block, numberBytesCompare)
+	iter := NewBlockIterator(block, opts)
 	for i := 10; i < 500; i++ {
 		assert.Assert(t, bytes.Compare(iter.Key(), []byte(strconv.Itoa(i))) == 0 &&
 			bytes.Compare(iter.Value(), []byte(strconv.Itoa(i*2))) == 0)

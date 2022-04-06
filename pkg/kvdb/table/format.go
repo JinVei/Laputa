@@ -15,17 +15,24 @@ const (
 	FooterEncodedLen      = 2*BlockHandleEncodedLen + 8 // 2*BlockHandle + MagicNumber
 
 	BlockTrailerSize = 5 // 1-byte type + 32-bit crc
+
+	CompressTypeNo     CompressType = 0x00
+	CompressTypeSnappy CompressType = 0x01
 )
 
+type CompressType byte
+
 var (
-	ErrFooterEncodeLen  = errors.New("ErrFooterEncodeLen")
-	ErrFooterValidMagic = errors.New("ErrFooterValidMagic")
-	ErrHandleDecodeBad  = errors.New("ErrHandleDecodeBad")
+	ErrFooterEncodeLen      = errors.New("ErrFooterEncodeLen")
+	ErrFooterValidMagic     = errors.New("ErrFooterValidMagic")
+	ErrHandleDecodeBad      = errors.New("ErrHandleDecodeBad")
+	ErrUnorderKey           = errors.New("ErrUnorderKey")
+	ErrTableBlockCorruption = errors.New("ErrTableBlockCorruption")
 )
 
 type BlockHandle struct {
-	Offset uint64
-	Size   uint64
+	Offset int64
+	Size   int64
 }
 
 type Footer struct {
@@ -36,18 +43,18 @@ type Footer struct {
 
 func (h *BlockHandle) EncodeTo(out []byte) {
 	util.Assert(20 <= len(out))
-	binary.PutUvarint(out[:20], h.Offset)
-	binary.PutUvarint(out[20:], h.Size)
+	binary.PutVarint(out[:10], h.Offset)
+	binary.PutVarint(out[10:], h.Size)
 }
 
 func (h *BlockHandle) DecodeFrom(in []byte) error {
 	util.Assert(20 <= len(in))
 	n := 0
-	h.Offset, n = binary.Uvarint(in[20:])
+	h.Offset, n = binary.Varint(in[:10])
 	if n <= 0 {
 		return ErrHandleDecodeBad
 	}
-	h.Size, n = binary.Uvarint(in[20:])
+	h.Size, n = binary.Varint(in[10:])
 	if n <= 0 {
 		return ErrHandleDecodeBad
 	}
