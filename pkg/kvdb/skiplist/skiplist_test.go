@@ -65,6 +65,19 @@ func TestSkiplist(t *testing.T) {
 	fmt.Println("finish!")
 }
 
+func TestSkiplistInterAndDelete(t *testing.T) {
+	rand.Seed(time.Now().Unix())
+	l := New(Compare)
+	for i := 10; i < 100; i++ {
+		l.Insert(i)
+	}
+	for i := 10; i < 100; i++ {
+		x := l.Find(i)
+		assert.Assert(t, x != nil)
+	}
+
+}
+
 func TestMap(t *testing.T) {
 	// levelCnt := make(map[int]int)
 	// for i := 0; i < 5000000; i++ {

@@ -9,6 +9,8 @@ const (
 	KMaxHeight = 12
 )
 
+type emptyKey struct{}
+
 type Key interface{}
 
 type Skiplist struct {
@@ -135,16 +137,34 @@ func (l *Skiplist) Contains(key Key) bool {
 	return false
 }
 
-type emptyKey struct{}
+func (l *Skiplist) Delete(key []byte) *Node {
+	prev := make([]*Node, KMaxHeight)
+	x := l.FindGreaterOrEqual(key, prev)
+	if l.compare(x.key, key) != 0 {
+		return nil
+	}
 
-func (k emptyKey) Hash() int {
-	return 0
+	for i := 0; i < len(x.next); i++ {
+		prev[i].SetNext(i, x.Next(i))
+		x.SetNext(i, nil)
+	}
+	return x
 }
 
-func (k emptyKey) Compare(k1 Key) int {
-	return -1
-}
+func (l *Skiplist) InsertNode(o *Node) {
+	prev := make([]*Node, KMaxHeight)
+	_ = l.FindGreaterOrEqual(o.key, prev)
+	height := len(o.next)
 
-func (k emptyKey) Instance() Key {
-	return k
+	if l.maxHeight < height {
+		for i := l.maxHeight; i < height; i++ {
+			prev[i] = l.head
+		}
+		l.maxHeight = height
+	}
+
+	for i := 0; i < height; i++ {
+		o.SetNext(i, prev[i].Next(i))
+		prev[i].SetNext(i, o)
+	}
 }

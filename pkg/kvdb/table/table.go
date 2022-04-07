@@ -10,7 +10,6 @@ import (
 )
 
 type Table struct {
-	//indexBlockIter *BlockIterator
 	indexBlock BlockContent
 	footer     Footer
 
@@ -50,10 +49,6 @@ func (t *Table) Open(file *os.File) error {
 }
 
 func (t *Table) initIndexBlockIter() error {
-	// _, err := t.file.Seek(int64(t.footer.IndexHandle.Offset), os.SEEK_SET)
-	// if err != nil {
-	// 	return err
-	// }
 	t.buffer = tryGrowBytesSlice(t.buffer, int(t.footer.IndexHandle.Size))
 	n, err := t.file.ReadAt(t.buffer, t.footer.IndexHandle.Offset)
 	if err != nil {
@@ -64,7 +59,6 @@ func (t *Table) initIndexBlockIter() error {
 		return err
 	}
 	t.indexBlock = indexBlock
-	//t.indexBlockIter = NewBlockIterator(indexBlock, t.opts.KeyComparator)
 	return nil
 }
 
