@@ -34,8 +34,8 @@ func NewTableBuilder(file *os.File, opts *common.Options) (*TableBuilder, error)
 
 	tb.opts = opts
 	tb.lastKey = *bytes.NewBuffer(make([]byte, 5))
-	tb.datakBuilder = NewBlockBuilder(opts)
-	tb.indexBuilder = NewBlockBuilder(opts)
+	tb.datakBuilder = NewBlockBuilder(opts.RestartInterval)
+	tb.indexBuilder = NewBlockBuilder(opts.IndexRestartInterval)
 	tb.snappybuf = make([]byte, 0)
 
 	return tb, nil

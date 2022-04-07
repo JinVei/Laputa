@@ -93,9 +93,8 @@ func (iter *BlockIterator) seekTo(offset int) {
 	iter.Next()
 }
 
-// if found target key, iter.Valid() == true, or iter.Valid() == false
-func (iter *BlockIterator) Seek(target []byte) {
-	//m := NewEntry()
+// return which restart point nearest
+func (iter *BlockIterator) SeektoNearest(target []byte) (left, right int) {
 	left, right, mid := int(0), int(iter.numRestarts-1), int(0)
 
 	// And also break Loop when shrink search area into one Restart-Point
@@ -112,6 +111,22 @@ func (iter *BlockIterator) Seek(target []byte) {
 			break
 		}
 	}
+	return
+}
+
+// if found target key, iter.Valid() == true, or iter.Valid() == false
+func (iter *BlockIterator) Seek(target []byte) {
+	left, right := iter.SeektoNearest(target)
+
+	rightLimit := 2 < iter.numRestarts
+
+	iter.seekTo(int(iter.restarts[right]))
+	if rightLimit && iter.compare(iter.Key(), target) < 0 {
+		// target large than right key.
+		// in this case mean  cant find target key in block
+		iter.blkoffset = len(iter.block) // make iter invalid
+		return
+	}
 
 	iter.seekTo(int(iter.restarts[left]))
 
@@ -119,7 +134,7 @@ func (iter *BlockIterator) Seek(target []byte) {
 		cmpRes := iter.compare(iter.Key(), target)
 		if cmpRes == 0 {
 			return
-		} else if cmpRes < 0 && iter.Valid() {
+		} else if cmpRes < 0 && iter.Valid() && (!rightLimit || iter.blkoffset <= int(iter.restarts[right])) {
 			//  iter.Key() < target
 			iter.Next()
 		} else {

@@ -1,7 +1,6 @@
 package table
 
 import (
-	"Laputa/pkg/kvdb/common"
 	"Laputa/pkg/util"
 	"bytes"
 	"encoding/binary"
@@ -31,11 +30,11 @@ type BlockBuilder struct {
 	restartInterval int // todo
 }
 
-func NewBlockBuilder(opts *common.Options) *BlockBuilder {
+func NewBlockBuilder(restartInterval int) *BlockBuilder {
 	builder := &BlockBuilder{}
 	builder.buffer = bytes.NewBuffer(make([]byte, 0, 1*1024))
 	builder.restarts = make([]uint32, 0, 10)
-	builder.restartInterval = opts.RestartInterval
+	builder.restartInterval = restartInterval
 	builder.lastKey = bytes.NewBuffer(make([]byte, 0, 10))
 	return builder
 }

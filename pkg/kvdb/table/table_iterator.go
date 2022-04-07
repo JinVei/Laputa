@@ -82,3 +82,22 @@ func (iter *Iterator) SeekToFirst() {
 	iter.indexIter.SeekToFirst()
 	iter.reloadDataBlock()
 }
+
+// If found target key, iter.Valid() == true, or iter.Valid() == false
+func (iter *Iterator) Seek(key []byte) {
+	letf, right := iter.indexIter.SeektoNearest(key)
+	for i := letf; i <= right; i++ {
+		iter.indexIter.seekTo(int(iter.indexIter.restarts[i]))
+		for iter.indexIter.Valid() {
+			iter.reloadDataBlock()
+			iter.dataIter.Seek(key)
+			if iter.dataIter.Valid() {
+				iter.valid = true
+				return
+			}
+			iter.indexIter.Next()
+		}
+	}
+	iter.valid = false
+	return
+}
