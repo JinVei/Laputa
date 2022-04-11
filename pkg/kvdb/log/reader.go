@@ -33,7 +33,7 @@ func NewReader(file *os.File) *Reader {
 func (r *Reader) ReadRecord() ([]byte, error) {
 	r.recordBuf.Reset()
 	for {
-		record, rtype, err := r.ReadPhysicalRecord()
+		record, rtype, err := r.readPhysicalRecord()
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +52,7 @@ func (r *Reader) ReadRecord() ([]byte, error) {
 	}
 }
 
-func (r *Reader) ReadPhysicalRecord() ([]byte, RecordType, error) {
+func (r *Reader) readPhysicalRecord() ([]byte, RecordType, error) {
 	if r.blkBuf.Len() < HeaderSize {
 		if !r.eof {
 			// the remain bytes less than HeaderSize. skip the tail of block
