@@ -4,6 +4,7 @@ import (
 	"Laputa/pkg/kvdb/common"
 	"encoding/binary"
 	"io"
+	"sort"
 )
 
 type LevelFileMetaDataPair struct {
@@ -37,7 +38,7 @@ type VersionEdit struct {
 	nextFileNumber uint64
 	lastSequence   uint64
 
-	compactPointer LevelInternalKeyPair
+	compactPointer *LevelInternalKeyPair
 	deletedFiles   []LevelNumberPair
 	newFiles       [common.MaxLevels][]*common.FileMetaData
 }
@@ -69,7 +70,9 @@ func (ve *VersionEdit) DecodeFrom(src []byte) error {
 			offset += n
 			compactPointer, n := common.DecodeLenPrefixBytes(src[offset:])
 			offset += n
-
+			if ve.compactPointer == nil {
+				ve.compactPointer = new(LevelInternalKeyPair)
+			}
 			ve.compactPointer.Level = int(level)
 			ve.compactPointer.Key = common.InternalKey(compactPointer)
 		case TagDeleteFile:
@@ -102,48 +105,56 @@ func (ve *VersionEdit) DecodeFrom(src []byte) error {
 
 func (ve *VersionEdit) EncodeTo(writer io.Writer) error {
 	varintbuf := make([]byte, 10)
-	n := binary.PutVarint(varintbuf, TagComparator)
-	writer.Write(varintbuf[:n])
-	common.EncodeLenPrefixBytes(writer, []byte(ve.comparator))
+	n := 0
+	if ve.comparator != "" {
+		n = binary.PutVarint(varintbuf, TagComparator)
+		writer.Write(varintbuf[:n])
+		common.EncodeLenPrefixBytes(writer, []byte(ve.comparator))
+	}
 
-	n = binary.PutVarint(varintbuf, TagLogNumber)
-	writer.Write(varintbuf[:n])
-	n = binary.PutVarint(varintbuf, int64(ve.logNumber))
-	writer.Write(varintbuf[:n])
-
-	n = binary.PutVarint(varintbuf, TagNextFileNumber)
-	writer.Write(varintbuf[:n])
-	n = binary.PutVarint(varintbuf, int64(ve.nextFileNumber))
-	writer.Write(varintbuf[:n])
-
-	n = binary.PutVarint(varintbuf, TagLastSequence)
-	writer.Write(varintbuf[:n])
-	n = binary.PutVarint(varintbuf, int64(ve.lastSequence))
-	writer.Write(varintbuf[:n])
-
-	n = binary.PutVarint(varintbuf, TagCompactPointer)
-	writer.Write(varintbuf[:n])
-	n = binary.PutVarint(varintbuf, int64(ve.compactPointer.Level))
-	writer.Write(varintbuf[:n])
-	common.EncodeLenPrefixBytes(writer, ve.compactPointer.Key)
-
-	if 0 < len(ve.deletedFiles) {
-		n = binary.PutVarint(varintbuf, TagDeleteFile)
+	if ve.logNumber != 0 {
+		n = binary.PutVarint(varintbuf, TagLogNumber)
+		writer.Write(varintbuf[:n])
+		n = binary.PutVarint(varintbuf, int64(ve.logNumber))
 		writer.Write(varintbuf[:n])
 	}
+
+	if ve.nextFileNumber != 0 {
+		n = binary.PutVarint(varintbuf, TagNextFileNumber)
+		writer.Write(varintbuf[:n])
+		n = binary.PutVarint(varintbuf, int64(ve.nextFileNumber))
+		writer.Write(varintbuf[:n])
+	}
+
+	if ve.lastSequence != 0 {
+		n = binary.PutVarint(varintbuf, TagLastSequence)
+		writer.Write(varintbuf[:n])
+		n = binary.PutVarint(varintbuf, int64(ve.lastSequence))
+		writer.Write(varintbuf[:n])
+	}
+
+	if ve.compactPointer != nil {
+		n = binary.PutVarint(varintbuf, TagCompactPointer)
+		writer.Write(varintbuf[:n])
+		n = binary.PutVarint(varintbuf, int64(ve.compactPointer.Level))
+		writer.Write(varintbuf[:n])
+		common.EncodeLenPrefixBytes(writer, ve.compactPointer.Key)
+	}
+
 	for _, file := range ve.deletedFiles {
+		n = binary.PutVarint(varintbuf, TagDeleteFile)
+		writer.Write(varintbuf[:n])
+
 		n = binary.PutVarint(varintbuf, int64(file.Level))
 		writer.Write(varintbuf[:n])
 		n = binary.PutVarint(varintbuf, int64(file.Numner))
 		writer.Write(varintbuf[:n])
 	}
 
-	if 0 < len(ve.newFiles) {
-		n = binary.PutVarint(varintbuf, TagNewFile)
-		writer.Write(varintbuf[:n])
-	}
 	for level, files := range ve.newFiles {
 		for _, meta := range files {
+			n = binary.PutVarint(varintbuf, TagNewFile)
+			writer.Write(varintbuf[:n])
 			n = binary.PutVarint(varintbuf, int64(level))
 			writer.Write(varintbuf[:n])
 			common.EncodeFileMetaData(writer, *meta)
@@ -154,38 +165,137 @@ func (ve *VersionEdit) EncodeTo(writer io.Writer) error {
 }
 
 func (ve *VersionEdit) Apply(edit VersionEdit) {
-	ve.comparator = edit.comparator
-	ve.logNumber = edit.logNumber
-	ve.nextFileNumber = edit.nextFileNumber
-	ve.lastSequence = edit.lastSequence
-	ve.compactPointer = edit.compactPointer
-	ve.deletedFiles = edit.deletedFiles
+	if edit.comparator != "" {
+		ve.comparator = edit.comparator
+	}
+	if edit.logNumber != 0 {
+		ve.logNumber = edit.logNumber
+	}
+	if edit.nextFileNumber != 0 {
+		ve.nextFileNumber = edit.nextFileNumber
+	}
+	if edit.lastSequence != 0 {
+		ve.lastSequence = edit.lastSequence
+	}
+	if edit.compactPointer != nil {
+		ve.compactPointer = edit.compactPointer
+	}
+
+	for level, mfile := range edit.newFiles {
+		for _, file := range mfile {
+			ve.newFiles[level] = append(ve.newFiles[level], file)
+		}
+	}
 
 	for _, df := range edit.deletedFiles {
-		for i, nf := range ve.newFiles[df.Level] {
-			if df.Numner == nf.Number {
+		found := false
+		for i, f := range ve.newFiles[df.Level] {
+			if f.Number == df.Numner {
 				ve.newFiles[df.Level] = append(ve.newFiles[df.Level][:i], ve.newFiles[df.Level][i+1:]...)
+				found = true
 				break
 			}
+		}
+		if !found {
+			ve.deletedFiles = append(ve.deletedFiles, df)
 		}
 	}
 }
 
-func (ve *VersionEdit) From(vers *Version) {
-	ve.comparator = vers.Comparator
-	ve.logNumber = vers.LogNumber
-	ve.nextFileNumber = vers.NextFileNumber
-	ve.lastSequence = vers.LastSequence
-	//ve.compactPointer = vers.CompactPointer
-	ve.newFiles = vers.MetaFiles // TODO
-	ve.deletedFiles = nil
+func (ve *VersionEdit) SetLogNumber(number uint64) {
+	ve.logNumber = number
 }
 
-func (ve *VersionEdit) ApplyTo(vers *Version) {
-	vers.Comparator = ve.comparator
-	vers.LogNumber = ve.logNumber
-	vers.NextFileNumber = ve.nextFileNumber
-	vers.LastSequence = ve.lastSequence
-	//vers.CompactPointer = ve.compactPointer
-	vers.MetaFiles = ve.newFiles
+func (ve *VersionEdit) SetNextFileNumber(number uint64) {
+	ve.nextFileNumber = number
+}
+
+func (ve *VersionEdit) SetLastSequence(sequence uint64) {
+	ve.nextFileNumber = sequence
+}
+
+func (ve *VersionEdit) SetComparator(name string) {
+	ve.comparator = name
+}
+
+func (ve *VersionEdit) AddFile(level int, file *common.FileMetaData) {
+	ve.newFiles[level] = append(ve.newFiles[level], file)
+}
+
+func (ve *VersionEdit) DelFile(level int, number uint64) {
+	ve.deletedFiles = append(ve.deletedFiles, LevelNumberPair{
+		Level:  level,
+		Numner: number,
+	})
+}
+
+func NewVersion(vset *VersionSet, oldv *Version, edit *VersionEdit) *Version {
+	v := new(Version)
+	v.vset = vset
+
+	if oldv != nil {
+		v.Comparator = oldv.Comparator
+		v.LogNumber = oldv.LogNumber
+		v.NextFileNumber = oldv.NextFileNumber
+		v.LastSequence = oldv.LastSequence
+
+		if oldv.compactPointer != nil {
+			v.compactPointer = &LevelInternalKeyPair{
+				Level: oldv.compactPointer.Level,
+				Key:   oldv.compactPointer.Key,
+			}
+		}
+
+		for level, metaf := range oldv.MetaFiles {
+			v.MetaFiles[level] = make([]*common.FileMetaData, len(metaf))
+			copy(v.MetaFiles[level], metaf)
+		}
+	}
+
+	if edit != nil {
+		if v.LogNumber < edit.logNumber {
+			v.LogNumber = edit.logNumber
+		}
+		if v.NextFileNumber < edit.nextFileNumber {
+			v.NextFileNumber = edit.nextFileNumber
+		}
+		if v.LastSequence < edit.lastSequence {
+			v.LastSequence = edit.lastSequence
+		}
+		if edit.compactPointer != nil {
+			v.compactPointer = edit.compactPointer
+		}
+
+		for level, metas := range edit.newFiles {
+			v.MetaFiles[level] = append(v.MetaFiles[level], metas...)
+
+			// descend by number
+			sort.Sort(sortMetaFile(v.MetaFiles[level]))
+		}
+
+		for _, delf := range edit.deletedFiles {
+			for i, f := range v.MetaFiles[delf.Level] {
+				if f.Number == delf.Numner {
+					v.MetaFiles[delf.Level] = append(v.MetaFiles[delf.Level][:i], v.MetaFiles[delf.Level][i+1:]...)
+					break
+				}
+			}
+		}
+	}
+	return v
+}
+
+type sortMetaFile []*common.FileMetaData
+
+func (s sortMetaFile) Len() int {
+	return len(s)
+}
+
+func (s sortMetaFile) Less(i, j int) bool {
+	// descend by file number
+	return s[j].Number < s[i].Number
+}
+
+func (s sortMetaFile) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
 }

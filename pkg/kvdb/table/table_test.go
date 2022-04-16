@@ -16,8 +16,8 @@ func TestTableBuilderAndIterator(t *testing.T) {
 	opts := common.NewDefaultOptions()
 	opts.KeyComparator = testNumberBytesCompare
 
-	tbuilder, err := NewTableBuilder(wf, opts)
-	assert.Assert(t, err == nil, err)
+	tbuilder := NewTableBuilder(wf, opts)
+	//assert.Assert(t, err == nil, err)
 	for i := 1000; i < 5000; i++ {
 		err = tbuilder.Add([]byte(strconv.Itoa(i)), []byte(strconv.Itoa(i*2)))
 		assert.Assert(t, err == nil, err)
@@ -67,28 +67,28 @@ func TestTableMergingIterator(t *testing.T) {
 	opts := common.NewDefaultOptions()
 	opts.KeyComparator = testNumberBytesCompare
 
-	tbuilder1, err := NewTableBuilder(wf1, opts)
-	assert.Assert(t, err == nil, err)
+	tbuilder1 := NewTableBuilder(wf1, opts)
 	for i := 1000; i < 2000; i++ {
-		err = tbuilder1.Add([]byte(strconv.Itoa(i)), []byte(strconv.Itoa(i*2)))
+		ikey := common.NewInternalKey([]byte(strconv.Itoa(i)), uint64(i), common.KTypeValue)
+		err = tbuilder1.Add(ikey, []byte(strconv.Itoa(i*2)))
 		assert.Assert(t, err == nil, err)
 	}
 	err = tbuilder1.Finish()
 	assert.Assert(t, err == nil, err)
 
-	tbuilder2, err := NewTableBuilder(wf2, opts)
-	assert.Assert(t, err == nil, err)
+	tbuilder2 := NewTableBuilder(wf2, opts)
 	for i := 2000; i < 3500; i++ {
-		err = tbuilder2.Add([]byte(strconv.Itoa(i)), []byte(strconv.Itoa(i*2)))
+		ikey := common.NewInternalKey([]byte(strconv.Itoa(i)), uint64(i), common.KTypeValue)
+		err = tbuilder2.Add(ikey, []byte(strconv.Itoa(i*2)))
 		assert.Assert(t, err == nil, err)
 	}
 	err = tbuilder2.Finish()
 	assert.Assert(t, err == nil, err)
 
-	tbuilder3, err := NewTableBuilder(wf3, opts)
-	assert.Assert(t, err == nil, err)
+	tbuilder3 := NewTableBuilder(wf3, opts)
 	for i := 3000; i < 4000; i++ {
-		err = tbuilder3.Add([]byte(strconv.Itoa(i)), []byte(strconv.Itoa(i*2)))
+		ikey := common.NewInternalKey([]byte(strconv.Itoa(i)), uint64(i), common.KTypeValue)
+		err = tbuilder3.Add(ikey, []byte(strconv.Itoa(i*2)))
 		assert.Assert(t, err == nil, err)
 	}
 	err = tbuilder3.Finish()
@@ -114,10 +114,13 @@ func TestTableMergingIterator(t *testing.T) {
 
 	i := 1000
 	dup := 0
-	miter := NewMergingIterator(append([]*Iterator{}, table1.NewIterator(), table3.NewIterator(), table2.NewIterator()), opts)
+	icompare := common.NewInternalKeyCompare(opts.KeyComparator).Compare
+	miter := NewMergingIterator(append([]*Iterator{}, table1.NewIterator(),
+		table3.NewIterator(), table2.NewIterator()), icompare)
 	for i < 4000 {
-		assert.Assert(t, opts.KeyComparator(miter.Key(), []byte(strconv.Itoa(i))) == 0 &&
-			opts.KeyComparator(miter.Value(), []byte(strconv.Itoa(i*2))) == 0, string(miter.Key())+":"+string([]byte(strconv.Itoa(i))))
+		ikey := common.InternalKey(miter.Key())
+		assert.Assert(t, opts.KeyComparator(ikey.UserKey(), []byte(strconv.Itoa(i))) == 0 &&
+			opts.KeyComparator(miter.Value(), []byte(strconv.Itoa(i*2))) == 0, string(ikey.UserKey())+":"+string([]byte(strconv.Itoa(i))))
 
 		if 3000 <= i && i < 3500 && dup == 0 {
 			dup++

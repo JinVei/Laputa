@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"hash/crc32"
-	"io"
 	"os"
 
 	"github.com/golang/snappy"
@@ -21,24 +20,26 @@ type TableBuilder struct {
 	indexBuilder *BlockBuilder
 	currIndex    BlockHandle
 	snappybuf    []byte
+	blockCnt     int
 }
 
-func NewTableBuilder(file *os.File, opts *common.Options) (*TableBuilder, error) {
+func NewTableBuilder(file *os.File, opts *common.Options) *TableBuilder {
 	tb := &TableBuilder{}
 	tb.file = file
-	offset, err := tb.file.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return nil, err
-	}
-	tb.currIndex.Offset = int64(offset)
+	// offset, err := tb.file.Seek(0, io.SeekCurrent)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	tb.currIndex.Offset = 0
 
 	tb.opts = opts
 	tb.lastKey = *bytes.NewBuffer(make([]byte, 5))
 	tb.datakBuilder = NewBlockBuilder(opts.RestartInterval)
 	tb.indexBuilder = NewBlockBuilder(opts.IndexRestartInterval)
 	tb.snappybuf = make([]byte, 0)
+	tb.blockCnt = 1
 
-	return tb, nil
+	return tb
 }
 
 func (builder *TableBuilder) Add(key, value []byte) error {
@@ -56,6 +57,7 @@ func (builder *TableBuilder) Add(key, value []byte) error {
 		if err := builder.flushDataBuilder(); err != nil {
 			return err
 		}
+		builder.blockCnt++
 	}
 	return nil
 }
@@ -89,6 +91,10 @@ func (builder *TableBuilder) Finish() error {
 	}
 
 	return nil
+}
+
+func (builder *TableBuilder) EstimatedSize() int {
+	return builder.blockCnt * builder.opts.TableBlockSize
 }
 
 func (builder *TableBuilder) flushDataBuilder() error {

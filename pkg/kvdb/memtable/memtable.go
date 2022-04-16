@@ -4,6 +4,7 @@ import (
 	"Laputa/pkg/kvdb/skiplist"
 	"bytes"
 	"encoding/binary"
+	"sync/atomic"
 
 	"Laputa/pkg/kvdb/common"
 )
@@ -20,21 +21,29 @@ func New(cmp common.Compare) *Memtable {
 
 type Memtable struct {
 	table          *skiplist.Skiplist
-	ref            int
+	ref            int64
 	allocated      uint64
 	userKeyCompare common.Compare
 }
 
 func (t *Memtable) Ref() {
+	atomic.AddInt64(&t.ref, 1)
 	t.ref++
 }
 
 func (t *Memtable) Unref() {
-	t.ref--
+	atomic.AddInt64(&t.ref, -1)
 }
 
 func (t *Memtable) Get(lkey LookupKey) ([]byte, bool) {
-	mkey := EncodeMemtableKey(lkey.Key, lkey.Sequence, KTypeValue)
+	internalKeylen := uint64(len(lkey.Key) + 8)
+	varintLen := VarintLen(internalKeylen)
+	tag := lkey.Sequence<<8 | uint64(KTypeValue)
+	mkey := make([]byte, varintLen+int(internalKeylen))
+
+	keyWriter := bytes.NewBuffer(mkey)
+	keyWriter.Reset()
+	EncodeMemtableKey(keyWriter, lkey.Key, tag)
 	x := t.table.FindLessThan(mkey)
 	if x.Next(0) == nil {
 		return nil, false
@@ -66,8 +75,13 @@ func (t *Memtable) Get(lkey LookupKey) ([]byte, bool) {
 //                           --------memtable key-------
 //  vlength    varint32
 //  value      char[vlength]
+func (t *Memtable) PutEntry(entry *Entry) {
+	t.table.Insert(entry.Bytes())
+	t.allocated += uint64(len(entry.Bytes()))
+}
+
 func (t *Memtable) Put(seq uint64, vtype ValueType, key []byte, value []byte) {
-	mkey := EncodeMemtableKey(key, seq, vtype)
+	mkey := NewMemtableKey(key, seq, vtype)
 	valLen := len(value)
 	varintLen := VarintLen(uint64(valLen))
 	mkeyLen := len(mkey)
@@ -105,4 +119,28 @@ func (t *Memtable) memtableKeycompare(k1, k2 interface{}) int {
 		return int(entry2.Sequence()) - int(entry1.Sequence())
 	}
 	return w
+}
+
+func (t *Memtable) Iterator() *Iterator {
+	return &Iterator{
+		listIter: t.table.Iterator(),
+	}
+}
+
+type Iterator struct {
+	listIter *skiplist.Iterator
+}
+
+func (iter *Iterator) Next() {
+	iter.listIter.Next()
+}
+
+func (iter *Iterator) Valid() bool {
+	return iter.listIter.Valid()
+}
+
+func (iter *Iterator) Get() Entry {
+	raw := iter.listIter.Key()
+	entry := DecodeEntry(raw.([]byte))
+	return entry
 }

@@ -11,15 +11,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 var (
 	ErrUnknowVersionEditTag = errors.New("ErrUnknowVersionEditTag")
-)
-
-const (
-	CurrentManifestName = "CURRENT"
-	ManifestSufix       = ".manifest"
 )
 
 type Version struct {
@@ -28,34 +24,25 @@ type Version struct {
 	NextFileNumber uint64
 	LastSequence   uint64
 	MetaFiles      [common.MaxLevels][]*common.FileMetaData
+	compactPointer *LevelInternalKeyPair
 
 	Next *Version
 	prev *Version
 
-	compactionScore float64
-	compactionLevel int
+	CompactionScore float64
+	CompactionLevel int
 
-	fileToCompact      *common.FileMetaData
-	fileToCompactLevel int
+	FileToCompact      *common.FileMetaData
+	FileToCompactLevel int
 
 	vset *VersionSet
 	ref  int
 }
 
 type Compaction struct {
-	level        int
-	inputs       [2][]*common.FileMetaData
-	inputVersion *Version
-}
-
-func NewCompaction(opts *common.Options) *Compaction {
-	c := &Compaction{}
-	return c
-}
-func NewVersion(vset *VersionSet) *Version {
-	v := new(Version)
-	v.vset = vset
-	return v
+	Level        int
+	Inputs       [2][]*common.FileMetaData
+	InputVersion *Version
 }
 
 type VersionSet struct {
@@ -63,101 +50,110 @@ type VersionSet struct {
 	current        *Version
 	dbname         string
 
-	NextFileNumber uint64
-	LastSequence   uint64
+	lastFileNumber uint64
+	lastSequence   uint64
 	LogNumber      uint64
+	PrevLogNumber  uint64
 	CompactPointer [common.MaxLevels]common.InternalKey
 
-	lock         *sync.RWMutex
+	//Lock         *sync.RWMutex
 	dummyVersion Version
 
-	manifest   *log.Writer //*os.File
+	manifest   *log.Writer
 	KeyCompare common.Compare
 	opts       *common.Options
+	versLock   *sync.RWMutex
 	//UserKeyCompare common.Compare
 
 }
 
-func NewVersionSet(dbname string, opts *common.Options) *VersionSet {
+func NewVersionSet(opts *common.Options) *VersionSet {
 	vs := new(VersionSet)
-	vs.dbname = dbname
-	vs.lock = &sync.RWMutex{}
+	vs.dbname = opts.DBDir
+	//vs.Lock = &sync.RWMutex{}
 	vs.opts = opts
 	vs.KeyCompare = opts.KeyComparator
+	vs.versLock = &sync.RWMutex{}
+
 	return vs
 }
 
+func NewCompaction(opts *common.Options) *Compaction {
+	c := &Compaction{}
+	return c
+}
+
+func (vs *VersionSet) NeedCompact() bool {
+	return 1 <= vs.current.CompactionScore || vs.current.FileToCompact != nil
+}
+
 func (vs *VersionSet) PickCompaction() *Compaction {
-	sizeCompacttion := 1 <= vs.current.compactionScore
-	seekCompacttion := vs.current.fileToCompact != nil
+	sizeCompacttion := 1 <= vs.current.CompactionScore
+	seekCompacttion := vs.current.FileToCompact != nil
 
 	level := 0
 	c := NewCompaction(vs.opts)
 	if sizeCompacttion {
-		level = vs.current.compactionLevel
-		c.level = level
+		level = vs.current.CompactionLevel
+		c.Level = level
 		metaFiles := vs.current.MetaFiles[level]
 		for _, f := range metaFiles {
 			if vs.CompactPointer[level] == nil ||
 				vs.KeyCompare(f.Largest, vs.CompactPointer[level]) <= 0 {
-				c.inputs[0] = append(c.inputs[0], f)
+				c.Inputs[0] = append(c.Inputs[0], f)
 				break
 			}
 		}
-		if len(c.inputs[0]) == 0 {
-			c.inputs[0] = append(c.inputs[0], metaFiles[0])
+		if len(c.Inputs[0]) == 0 {
+			c.Inputs[0] = append(c.Inputs[0], metaFiles[0])
 		}
 
 	} else if seekCompacttion {
-		level = vs.current.compactionLevel
-		c.level = level
-		c.inputs[0] = append(c.inputs[0], vs.current.fileToCompact)
+		level = vs.current.CompactionLevel
+		c.Level = level
+		c.Inputs[0] = append(c.Inputs[0], vs.current.FileToCompact)
 	} else {
 		return nil
 	}
 
-	c.inputVersion = vs.current
-	c.inputVersion.Ref()
+	c.InputVersion = vs.current
+	c.InputVersion.Ref()
 
-	smallest, largest := vs.GetRange(c.inputs[0])
-	smallest, largest, c.inputs[0] = vs.current.GetOverlappingInputs(level, smallest, largest, c.inputs[0])
+	smallest, largest := vs.GetRange(c.Inputs[0])
+	smallest, largest, c.Inputs[0] = vs.current.GetOverlappingInputs(level, smallest, largest, c.Inputs[0])
 
-	smallest, largest, c.inputs[1] = vs.current.GetOverlappingInputs(level+1, smallest, largest, c.inputs[1])
+	smallest, largest, c.Inputs[1] = vs.current.GetOverlappingInputs(level+1, smallest, largest, c.Inputs[1])
 
 	vs.CompactPointer[level] = largest
 	return c
 }
 
 func (vs *VersionSet) LogAndApply(edit *VersionEdit) {
-	ve := VersionEdit{}
-	ve.From(vs.current)
-	ve.Apply(*edit)
-
-	newVersion := NewVersion(vs)
-	ve.ApplyTo(newVersion)
+	newVersion := NewVersion(vs, vs.current, edit)
 	record := bytes.NewBuffer(make([]byte, 0))
-	ve.EncodeTo(record)
+	edit.EncodeTo(record)
 	vs.manifest.AddRecord(record.Bytes())
 
-	vs.lock.Lock()
-	defer vs.lock.Unlock()
+	//vs.Lock.Lock()
+	//defer vs.Lock.Unlock()
 
 	vs.current.prev = &vs.dummyVersion
 	vs.current.Next = vs.dummyVersion.Next
 	vs.dummyVersion.Next = vs.current
 	vs.current.Unref()
-	vs.current = newVersion
+	vs.setVersion(newVersion)
+	newVersion.Ref()
 }
 
 func (vs *VersionSet) Recover() error {
-	vs.lock.Lock()
-	defer vs.lock.Unlock()
+	//vs.Lock.Lock()
+	//defer vs.Lock.Unlock()
 
 	if err := os.MkdirAll(vs.dbname, 0766); err != nil && err != os.ErrExist {
 		return err
 	}
 
-	current := filepath.Join(vs.dbname, CurrentManifestName)
+	current := filepath.Join(vs.dbname, common.GetCurrentName())
 	fcurrent, err := os.OpenFile(current, os.O_CREATE|os.O_RDWR, 0766)
 	if err != nil {
 		return err
@@ -168,8 +164,8 @@ func (vs *VersionSet) Recover() error {
 	if err != nil && err != io.EOF {
 		return err
 	}
-	var ve *VersionEdit
-	oldmanifestPath := filepath.Join(vs.dbname, string(manifestNum)+ManifestSufix)
+	ve := new(VersionEdit)
+	oldmanifestPath := filepath.Join(vs.dbname, common.GetManifestNameBytes(manifestNum))
 	if string(manifestNum) == "" {
 		// may be new database
 		goto END_READ_MANIFEST
@@ -181,8 +177,8 @@ func (vs *VersionSet) Recover() error {
 			return err
 		}
 		defer fmanifest.Close()
+		logReader := log.NewReader(fmanifest)
 		for {
-			logReader := log.NewReader(fmanifest)
 			record, err := logReader.ReadRecord()
 			if err != nil && err != io.EOF {
 				return err
@@ -195,46 +191,37 @@ func (vs *VersionSet) Recover() error {
 			if err := v.DecodeFrom(record); err != nil {
 				return err
 			}
-
-			if ve == nil {
-				ve = new(VersionEdit)
-			}
 			ve.Apply(v)
 		}
 	}
 END_READ_MANIFEST:
-	version := NewVersion(vs)
-	if ve != nil {
-		ve.ApplyTo(version)
-	}
-	version.Ref()
-	vs.current = version
 
-	mewManifestNum := strconv.Itoa(int(vs.current.NextFileNumber))
-	newmanifest := filepath.Join(vs.dbname, mewManifestNum+ManifestSufix)
-	vs.current.NextFileNumber++
-	if vs.current.LogNumber == 0 {
-		vs.current.LogNumber = vs.current.NextFileNumber
-		vs.current.NextFileNumber++
+	err = vs.recoverNextFileNumber()
+	if err != nil {
+		return err
 	}
 
+	newManifestNum := vs.NextFileNumber()
+	newmanifest := filepath.Join(vs.dbname, common.GetManifestName(newManifestNum))
 	fmanifest, err := os.OpenFile(newmanifest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0766)
 	if err != nil {
 		return err
 	}
 	vs.manifest = log.NewWriter(fmanifest)
 
-	edit := VersionEdit{}
-	edit.From(vs.current)
+	ve.SetNextFileNumber(vs.lastFileNumber)
+
+	version := NewVersion(vs, nil, ve)
+	version.Ref()
+	vs.lastSequence = version.LastSequence
+	vs.LogNumber = version.LogNumber
+	vs.current = version
+
 	record := bytes.NewBuffer(make([]byte, 0))
-	edit.EncodeTo(record)
+	ve.EncodeTo(record)
 	vs.manifest.AddRecord(record.Bytes())
 
-	vs.NextFileNumber = vs.current.NextFileNumber
-	vs.LastSequence = vs.current.LastSequence
-	vs.LogNumber = vs.current.LogNumber
-
-	if _, err := fcurrent.WriteAt([]byte(mewManifestNum), 0); err != nil {
+	if _, err := fcurrent.WriteAt([]byte(strconv.Itoa(int(newManifestNum))), 0); err != nil {
 		return err
 	}
 	os.Remove(oldmanifestPath)
@@ -257,6 +244,26 @@ func (vs *VersionSet) GetRange(inputs []*common.FileMetaData) (smallest, largest
 		}
 	}
 	return
+}
+
+func (vs *VersionSet) NextSequence() uint64 {
+	return atomic.AddUint64(&vs.lastSequence, 1)
+}
+
+func (vs *VersionSet) LastSequence() uint64 {
+	return atomic.LoadUint64(&vs.lastSequence)
+}
+
+func (vs *VersionSet) ResetSequence(sequence uint64) {
+	atomic.StoreUint64(&vs.lastSequence, sequence)
+}
+
+func (vs *VersionSet) NextFileNumber() uint64 {
+	return atomic.AddUint64(&vs.lastFileNumber, 1)
+}
+
+func (vs *VersionSet) GetLastFileNumber() uint64 {
+	return atomic.LoadUint64(&vs.lastFileNumber)
 }
 
 func (v *Version) Ref() { v.ref++ }
@@ -296,4 +303,52 @@ func (v *Version) GetOverlappingInputs(level int, smallest, largest common.Inter
 		}
 	}
 	return smallest, largest, inputs
+}
+
+func (vs *VersionSet) recoverNextFileNumber() error {
+	dirs, err := os.ReadDir(vs.dbname)
+	if err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		number := common.ParseFileNameNumber(dir.Name())
+		if number < 0 {
+			continue
+		}
+
+		if vs.lastFileNumber < uint64(number) {
+			vs.lastFileNumber = uint64(number)
+		}
+	}
+	return nil
+}
+
+func (vs *VersionSet) CurrentVersion() *Version {
+	vs.versLock.RLock()
+	defer vs.versLock.RUnlock()
+	return vs.current
+}
+
+func (vs *VersionSet) RefVersion() *Version {
+	vs.versLock.RLock()
+	defer vs.versLock.RUnlock()
+	vs.current.Ref()
+	return vs.current
+}
+
+func (vs *VersionSet) setVersion(v *Version) {
+	vs.versLock.Lock()
+	defer vs.versLock.Unlock()
+	vs.current = v
+}
+
+func (vs *VersionSet) LevelTableSize(level int) uint64 {
+	return vs.opts.MaxMemtableSize * (1 << level)
+}
+
+func (vs *VersionSet) SetSeekCompact(level int, meta *common.FileMetaData) {
+	vs.versLock.Lock()
+	defer vs.versLock.Unlock()
+	vs.current.FileToCompact = meta
+	vs.current.FileToCompactLevel = level
 }

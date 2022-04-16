@@ -33,6 +33,8 @@ type FileMetaData struct {
 	Largest      InternalKey
 }
 
+// ---user key---
+// ---   tag  ---
 type InternalKey []byte
 
 func (k InternalKey) UserKey() []byte {
@@ -41,6 +43,14 @@ func (k InternalKey) UserKey() []byte {
 
 func (k InternalKey) Tag() uint64 {
 	return binary.LittleEndian.Uint64(k[len(k)-8:])
+}
+
+func (k InternalKey) Sequence() uint64 {
+	return binary.LittleEndian.Uint64(k[len(k)-8:]) >> 8
+}
+
+func (k InternalKey) KeyType() uint8 {
+	return uint8(binary.LittleEndian.Uint64(k[len(k)-8:]))
 }
 
 func DecodeLenPrefixBytes(src []byte) ([]byte, int) {
@@ -89,12 +99,15 @@ func EncodeFileMetaData(w io.Writer, meta FileMetaData) int {
 	varintbuf := make([]byte, 10)
 
 	n := binary.PutVarint(varintbuf, int64(meta.AllowedSeeks))
+	w.Write(varintbuf[:n])
 	len += n
 
 	n = binary.PutVarint(varintbuf, int64(meta.Number))
+	w.Write(varintbuf[:n])
 	len += n
 
 	n = binary.PutVarint(varintbuf, int64(meta.FileSize))
+	w.Write(varintbuf[:n])
 	len += n
 
 	n = EncodeLenPrefixBytes(w, meta.Smallest)
@@ -112,4 +125,44 @@ func EncodeInternalKey(w io.Writer, key []byte, sequence uint64, vtype ValueType
 	tagEncode := make([]byte, 8)
 	binary.LittleEndian.PutUint64(tagEncode, tag)
 	w.Write(tagEncode)
+}
+
+func NewInternalKey(key []byte, sequence uint64, vtype ValueType) InternalKey {
+	ikey := make([]byte, len(key)+8)
+	tag := sequence<<8 | uint64(vtype)
+	copy(ikey, key)
+	binary.LittleEndian.PutUint64(ikey[len(ikey)-8:], tag)
+
+	return ikey
+}
+
+func NewFileMetaData(number uint64, size uint64, smallest InternalKey, largest InternalKey) *FileMetaData {
+	meta := new(FileMetaData)
+	meta.Number = number
+	meta.FileSize = size
+	meta.Smallest = smallest
+	meta.Largest = largest
+
+	return meta
+}
+
+type InternalKeyCompare struct {
+	userKeyCompare Compare
+}
+
+func NewInternalKeyCompare(userKeyCompare Compare) *InternalKeyCompare {
+	return &InternalKeyCompare{
+		userKeyCompare: userKeyCompare,
+	}
+}
+
+func (cmp *InternalKeyCompare) Compare(key1, key2 []byte) int {
+	ikey1 := InternalKey(key1)
+	ikey2 := InternalKey(key2)
+	ret := cmp.userKeyCompare(ikey1.UserKey(), ikey2.UserKey())
+	if ret == 0 {
+		return int(ikey2.Sequence()) - int(ikey1.Sequence())
+	} else {
+		return ret
+	}
 }

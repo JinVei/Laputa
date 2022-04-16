@@ -11,7 +11,7 @@ import (
 
 func TestVersionSet(t *testing.T) {
 	opts := common.NewDefaultOptions()
-	vset := NewVersionSet("./db", opts)
+	vset := NewVersionSet(opts)
 	err := vset.Recover()
 	assert.Assert(t, err == nil, err)
 }
@@ -19,7 +19,7 @@ func TestVersionSet(t *testing.T) {
 func TestPickcompaction(t *testing.T) {
 
 	opts := common.NewDefaultOptions()
-	vset := NewVersionSet("./db", opts)
+	vset := NewVersionSet(opts)
 	err := vset.Recover()
 	assert.Assert(t, err == nil, err)
 
@@ -55,8 +55,8 @@ func TestPickcompaction(t *testing.T) {
 	vset.current.MetaFiles[0] = append(vset.current.MetaFiles[0], &meta1)
 	vset.current.MetaFiles[0] = append(vset.current.MetaFiles[0], &meta2)
 	vset.current.MetaFiles[1] = append(vset.current.MetaFiles[1], &meta3)
-	vset.current.compactionScore = 1
-	vset.current.compactionLevel = 0
+	vset.current.CompactionScore = 1
+	vset.current.CompactionLevel = 0
 
 	c := vset.PickCompaction()
 	fmt.Println(c)

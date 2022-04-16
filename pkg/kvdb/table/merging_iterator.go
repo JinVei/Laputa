@@ -12,10 +12,10 @@ type MergingIterator struct {
 	valid   bool
 }
 
-func NewMergingIterator(iters []*Iterator, opts *common.Options) *MergingIterator {
+func NewMergingIterator(iters []*Iterator, cmp common.Compare) *MergingIterator {
 	miter := &MergingIterator{}
 	miter.iters = iters
-	miter.compare = opts.KeyComparator
+	miter.compare = cmp
 	miter.valid = true
 	miter.Next()
 	return miter
