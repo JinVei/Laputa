@@ -136,7 +136,7 @@ func NewInternalKey(key []byte, sequence uint64, vtype ValueType) InternalKey {
 	return ikey
 }
 
-func NewFileMetaData(number uint64, size uint64, smallest InternalKey, largest InternalKey) *FileMetaData {
+func NewFileMetaData(number uint64, size uint64, smallest, largest InternalKey) *FileMetaData {
 	meta := new(FileMetaData)
 	meta.Number = number
 	meta.FileSize = size

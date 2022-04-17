@@ -56,6 +56,10 @@ func (db *DB) Recover() error {
 		return err
 	}
 	err = db.recoverJournal()
+
+	go db.comapctCoroutine()
+	db.initSizeCompact()
+
 	return err
 }
 
@@ -89,6 +93,14 @@ func (db *DB) findKVFromSST(key []byte) ([]byte, bool) {
 	defer vers.Unref()
 	for level, metas := range vers.MetaFiles {
 		for _, meta := range metas {
+			if db.opts.KeyComparator(key, meta.Smallest.UserKey()) < 0 {
+				break
+			}
+
+			if db.opts.KeyComparator(meta.Largest.UserKey(), key) < 0 {
+				continue
+			}
+
 			sst, err := db.tCache.Get(meta.Number)
 			if err != nil {
 				fmt.Println("db.tCache.Get(meta.Number)", err)
@@ -159,11 +171,12 @@ func (db *DB) Delete(key []byte) error {
 	return nil
 }
 
+var done = false
+
 // should lock db.mtableLock
 func (db *DB) checkMemtableUsage() error {
 	// minor compact
 	if db.opts.MaxMemtableSize < db.mtable.MemoryUsage() {
-
 		for db.immtable != nil {
 			db.blockImmCond.Wait()
 		}
@@ -208,9 +221,13 @@ func (db *DB) doMinorCompact(mtable *memtable.Memtable, fileNumber, oldLognumber
 	var last []byte
 	if !iter.Valid() {
 		// empty log
+		err := os.Remove(filepath.Join(db.opts.DBDir, common.GetLogName(oldLognumber)))
+		if err != nil {
+			fmt.Println("Get error in os.Remove:", err)
+		}
 		return nil
 	}
-	firstKey := iter.Get().InternalKey()
+	firstKey := append([]byte{}, iter.Get().InternalKey()...)
 
 	tname := filepath.Join(db.opts.DBDir, common.GetTableName(fileNumber))
 
@@ -242,12 +259,9 @@ func (db *DB) doMinorCompact(mtable *memtable.Memtable, fileNumber, oldLognumber
 		return err
 	}
 
-	meta := new(common.FileMetaData)
 	stat, _ := ftable.Stat()
-	meta.FileSize = uint64(stat.Size())
-	meta.Smallest = firstKey
-	meta.Largest = memtable.DecodeEntry(last).InternalKey()
-	meta.Number = fileNumber
+
+	meta := common.NewFileMetaData(fileNumber, uint64(stat.Size()), firstKey, memtable.DecodeEntry(last).InternalKey())
 	meta.Refs++
 
 	ve := versionset.VersionEdit{}
@@ -255,8 +269,8 @@ func (db *DB) doMinorCompact(mtable *memtable.Memtable, fileNumber, oldLognumber
 	db.vset.LogAndApply(&ve)
 
 	currVers := db.vset.CurrentVersion() //
-	if db.opts.L0CompactTriggerNum < len(currVers.MetaFiles) {
-		currVers.CompactionScore = float64(len(currVers.MetaFiles)) / float64(db.opts.L0CompactTriggerNum)
+	if db.opts.L0CompactTriggerNum <= len(currVers.MetaFiles[0]) {
+		currVers.CompactionScore = float64(len(currVers.MetaFiles[0])) / float64(db.opts.L0CompactTriggerNum)
 		currVers.CompactionLevel = 0
 	}
 
@@ -288,8 +302,9 @@ func (db *DB) recoverJournal() error {
 	if err != nil {
 		return err
 	}
-
-	for _, number := range logNumbers {
+	reuseLastLog := false
+	i, number := 0, 0
+	for i, number = range logNumbers {
 		logPath := filepath.Join(db.opts.DBDir, common.GetLogName(uint64(number)))
 		rlog, err := os.Open(logPath)
 		if err != nil {
@@ -314,12 +329,22 @@ func (db *DB) recoverJournal() error {
 			}
 		}
 
-		if err := db.doMinorCompact(db.mtable, db.vset.NextFileNumber(), uint64(number)); err != nil {
-			return err
+		if i < len(logNumbers) {
+			if i == len(logNumbers)-1 && db.mtable.MemoryUsage() < db.opts.MaxMemtableSize {
+				reuseLastLog = true
+				continue
+			}
+			if err := db.doMinorCompact(db.mtable, db.vset.NextFileNumber(), uint64(number)); err != nil {
+				return err
+			}
+			db.mtable = memtable.New(db.opts.KeyComparator)
 		}
 	}
+	lognumbber := uint64(number)
+	if !reuseLastLog {
+		lognumbber = db.vset.NextFileNumber()
+	}
 
-	lognumbber := db.vset.NextFileNumber()
 	logPath := filepath.Join(db.opts.DBDir, common.GetLogName(lognumbber))
 	wlog, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0766)
 	if err != nil {
@@ -329,6 +354,7 @@ func (db *DB) recoverJournal() error {
 	db.journal = log.NewWriter(wlog)
 	ve := new(versionset.VersionEdit)
 
+	db.vset.LogNumber = lognumbber
 	ve.SetLogNumber(lognumbber)
 	db.vset.LogAndApply(ve)
 	return nil
@@ -362,6 +388,7 @@ func (db *DB) DoComapct() {
 			if err != nil {
 				fmt.Println("DoComapct:", err)
 			}
+			immtable = nil
 			db.blockImmCond.Broadcast()
 
 		} else if db.vset.NeedCompact() {
@@ -413,7 +440,9 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) {
 		}
 		defer f.Close()
 		tbuilder := table.NewTableBuilder(f, db.opts)
-
+		if first != nil {
+			first = first[0:0]
+		}
 		first = append(first, miter.Key()...)
 
 		for ; miter.Valid(); miter.Next() {
@@ -435,6 +464,9 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) {
 				// TODO
 				panic(err)
 			}
+			if last != nil {
+				last = last[0:0]
+			}
 			last = append(last, miter.Key()...)
 
 		}
@@ -453,6 +485,13 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) {
 	for _, meta := range metas {
 		ve.AddFile(nextLevel, meta)
 	}
+	//delete
+	for i, in := range compact.Inputs {
+		for _, meta := range in {
+			ve.DelFile(compact.Level+i, meta.Number)
+		}
+	}
+
 	ve.SetNextFileNumber(db.vset.GetLastFileNumber())
 	if db.vset.CurrentVersion().LastSequence != db.vset.LastSequence() {
 		ve.SetNextFileNumber(db.vset.LastSequence())
@@ -460,16 +499,45 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) {
 
 	db.vset.LogAndApply(&ve)
 
+	// vers := db.vset.CurrentVersion()
+	// levelFileSize := 0
+	// for _, meta := range vers.MetaFiles[nextLevel] {
+	// 	levelFileSize += int(meta.FileSize)
+	// }
+	// initSizeCompact
+	db.initSizeCompact()
+	// compactscore := float64(levelFileSize) / float64(db.vset.LevelTableSize(nextLevel))
+	// vers.CompactionScore = compactscore
+	// vers.CompactionLevel = nextLevel
+}
+
+func (db *DB) initSizeCompact() {
 	vers := db.vset.CurrentVersion()
-	levelFileSize := 0
-	for _, meta := range vers.MetaFiles[nextLevel] {
-		levelFileSize += int(meta.FileSize)
+	for level, metas := range vers.MetaFiles {
+		if level == 0 {
+			if db.opts.L0CompactTriggerNum < len(vers.MetaFiles[0]) {
+				vers.CompactionScore = float64(len(vers.MetaFiles[0])) / float64(db.opts.L0CompactTriggerNum)
+				vers.CompactionLevel = 0
+				db.signalForDoCompact()
+				return
+			}
+		} else {
+			levelFileSize := 0
+			for _, meta := range metas {
+				levelFileSize += int(meta.FileSize)
+			}
+			compactscore := float64(levelFileSize) / float64(db.vset.LevelTableSize(level))
+			vers.CompactionScore = compactscore
+			vers.CompactionLevel = level
+			if 1 <= vers.CompactionScore {
+				db.signalForDoCompact()
+				return
+			}
+		}
 	}
-	compactscore := float64(levelFileSize) / float64(db.vset.LevelTableSize(nextLevel))
-	vers.CompactionScore = compactscore
-	vers.CompactionLevel = nextLevel
 }
 
 // TODO
 // clean unuse sstable
 // LRU sstable Cache
+// filter block

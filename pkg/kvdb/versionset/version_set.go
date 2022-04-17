@@ -343,7 +343,7 @@ func (vs *VersionSet) setVersion(v *Version) {
 }
 
 func (vs *VersionSet) LevelTableSize(level int) uint64 {
-	return vs.opts.MaxMemtableSize * (1 << level)
+	return vs.opts.L0TableSize * (1 << level)
 }
 
 func (vs *VersionSet) SetSeekCompact(level int, meta *common.FileMetaData) {

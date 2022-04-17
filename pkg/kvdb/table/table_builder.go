@@ -89,6 +89,7 @@ func (builder *TableBuilder) Finish() error {
 	if err != nil {
 		return err
 	}
+	builder.file.Sync()
 
 	return nil
 }

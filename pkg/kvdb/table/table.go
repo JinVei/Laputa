@@ -50,6 +50,7 @@ func (t *Table) Open(file *os.File) error {
 
 func (t *Table) initIndexBlockIter() error {
 	t.buffer = tryGrowBytesSlice(t.buffer, int(t.footer.IndexHandle.Size))
+	t.buffer = t.buffer[:t.footer.IndexHandle.Size]
 	n, err := t.file.ReadAt(t.buffer, t.footer.IndexHandle.Offset)
 	if err != nil {
 		return err

@@ -11,6 +11,7 @@ type Options struct {
 	CompressTableBlock   bool
 	DBDir                string
 	MaxMemtableSize      uint64 // byte
+	L0TableSize          uint64
 	MaxAllowSeek         int
 	L0CompactTriggerNum  int
 }
@@ -25,6 +26,7 @@ func NewDefaultOptions() *Options {
 	opts.DBDir = "./db"
 	opts.MaxMemtableSize = 1024 * 1024 // 1M
 	opts.L0CompactTriggerNum = 4
-	opts.MaxAllowSeek = 100 // TODO
+	opts.L0TableSize = 1024 * 1024 * 4 // 4M
+	opts.MaxAllowSeek = 100            // TODO
 	return opts
 }
