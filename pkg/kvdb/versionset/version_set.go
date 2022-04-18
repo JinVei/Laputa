@@ -36,7 +36,7 @@ type Version struct {
 	FileToCompactLevel int
 
 	vset *VersionSet
-	ref  int
+	ref  int64
 }
 
 type Compaction struct {
@@ -118,6 +118,7 @@ func (vs *VersionSet) PickCompaction() *Compaction {
 
 	c.InputVersion = vs.current
 	c.InputVersion.Ref()
+	defer c.InputVersion.Unref()
 
 	smallest, largest := vs.GetRange(c.Inputs[0])
 	smallest, largest, c.Inputs[0] = vs.current.GetOverlappingInputs(level, smallest, largest, c.Inputs[0])
@@ -134,9 +135,6 @@ func (vs *VersionSet) LogAndApply(edit *VersionEdit) {
 	edit.EncodeTo(record)
 	vs.manifest.AddRecord(record.Bytes())
 
-	//vs.Lock.Lock()
-	//defer vs.Lock.Unlock()
-
 	vs.current.prev = &vs.dummyVersion
 	vs.current.Next = vs.dummyVersion.Next
 	vs.dummyVersion.Next = vs.current
@@ -146,13 +144,6 @@ func (vs *VersionSet) LogAndApply(edit *VersionEdit) {
 }
 
 func (vs *VersionSet) Recover() error {
-	//vs.Lock.Lock()
-	//defer vs.Lock.Unlock()
-
-	if err := os.MkdirAll(vs.dbname, 0766); err != nil && err != os.ErrExist {
-		return err
-	}
-
 	current := filepath.Join(vs.dbname, common.GetCurrentName())
 	fcurrent, err := os.OpenFile(current, os.O_CREATE|os.O_RDWR, 0766)
 	if err != nil {
@@ -269,12 +260,6 @@ func (vs *VersionSet) GetLastFileNumber() uint64 {
 func (v *Version) Ref() { v.ref++ }
 func (v *Version) Unref() {
 	v.ref--
-	if v.ref == 0 {
-		v.prev.Next = v.Next
-		v.prev = nil
-		v.Next = nil
-	}
-	//TODO: unref filemeta
 }
 
 func (v *Version) GetOverlappingInputs(level int, smallest, largest common.InternalKey, inputs []*common.FileMetaData) (common.InternalKey, common.InternalKey, []*common.FileMetaData) {
@@ -351,4 +336,18 @@ func (vs *VersionSet) SetSeekCompact(level int, meta *common.FileMetaData) {
 	defer vs.versLock.Unlock()
 	vs.current.FileToCompact = meta
 	vs.current.FileToCompactLevel = level
+}
+
+func (vs *VersionSet) RemoveUnrefVersion() []*Version {
+	vs.versLock.Lock()
+	defer vs.versLock.Unlock()
+	vers := vs.dummyVersion.Next
+	var unused []*Version
+	for ; vers != nil; vers = vers.Next {
+		if atomic.LoadInt64(&vers.ref) == 0 {
+			unused = append(unused, vers)
+			vers.prev.Next = vers.Next
+		}
+	}
+	return unused
 }

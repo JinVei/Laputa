@@ -36,7 +36,7 @@ func (t *Table) Open(file *os.File) error {
 	}
 
 	t.buffer = tryGrowBytesSlice(t.buffer, FooterEncodedLen)
-	n, err := t.file.Read(t.buffer)
+	n, err := t.file.Read(t.buffer[:FooterEncodedLen])
 	if err != nil {
 		return err
 	}
@@ -48,10 +48,13 @@ func (t *Table) Open(file *os.File) error {
 
 }
 
+func (t *Table) GetWritedFile() *os.File {
+	return t.file
+}
+
 func (t *Table) initIndexBlockIter() error {
 	t.buffer = tryGrowBytesSlice(t.buffer, int(t.footer.IndexHandle.Size))
-	t.buffer = t.buffer[:t.footer.IndexHandle.Size]
-	n, err := t.file.ReadAt(t.buffer, t.footer.IndexHandle.Offset)
+	n, err := t.file.ReadAt(t.buffer[:t.footer.IndexHandle.Size], t.footer.IndexHandle.Offset)
 	if err != nil {
 		return err
 	}

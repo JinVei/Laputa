@@ -6,8 +6,12 @@ import (
 	"strings"
 )
 
-func GetLogName(number uint64) string {
+func GetJoutnalName(number uint64) string {
 	return strconv.Itoa(int(number)) + ".log"
+}
+
+func GetLogName() string {
+	return "LOG"
 }
 
 func GetManifestName(number uint64) string {
@@ -24,6 +28,10 @@ func GetTableName(number uint64) string {
 
 func GetCurrentName() string {
 	return "CURRENT"
+}
+
+func GetDBLockerName() string {
+	return ".LOCK"
 }
 
 func LogNameToNumber(name string) uint64 {

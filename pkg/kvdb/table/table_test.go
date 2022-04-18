@@ -10,7 +10,9 @@ import (
 )
 
 func TestTableBuilderAndIterator(t *testing.T) {
-	wf, err := os.OpenFile("./test.sst", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
+	sst1 := "./test.sst"
+
+	wf, err := os.OpenFile(sst1, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
 	assert.Assert(t, err == nil, err)
 
 	opts := common.NewDefaultOptions()
@@ -25,7 +27,7 @@ func TestTableBuilderAndIterator(t *testing.T) {
 	err = tbuilder.Finish()
 	assert.Assert(t, err == nil, err)
 
-	rf, err := os.OpenFile("./test.sst", os.O_RDONLY, 766)
+	rf, err := os.OpenFile(sst1, os.O_RDONLY, 766)
 
 	table := New(opts)
 	err = table.Open(rf)
@@ -53,15 +55,19 @@ func TestTableBuilderAndIterator(t *testing.T) {
 
 	iter.Seek([]byte(strconv.Itoa(7888)))
 	assert.Assert(t, !iter.Valid())
+	os.Remove(sst1)
 
 }
 
 func TestTableMergingIterator(t *testing.T) {
-	wf1, err := os.OpenFile("./test1.sst", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
+	sst1 := "./test1.sst"
+	sst2 := "./test2.sst"
+	sst3 := "./test3.sst"
+	wf1, err := os.OpenFile(sst1, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
 	assert.Assert(t, err == nil, err)
-	wf2, err := os.OpenFile("./test2.sst", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
+	wf2, err := os.OpenFile(sst2, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
 	assert.Assert(t, err == nil, err)
-	wf3, err := os.OpenFile("./test3.sst", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
+	wf3, err := os.OpenFile(sst3, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0766)
 	assert.Assert(t, err == nil, err)
 
 	opts := common.NewDefaultOptions()
@@ -95,19 +101,19 @@ func TestTableMergingIterator(t *testing.T) {
 	assert.Assert(t, err == nil, err)
 
 	table1 := New(opts)
-	rf1, err := os.OpenFile("./test1.sst", os.O_RDONLY, 0766)
+	rf1, err := os.OpenFile(sst1, os.O_RDONLY, 0766)
 	assert.Assert(t, err == nil, err)
 	err = table1.Open(rf1)
 	assert.Assert(t, err == nil, err)
 
 	table2 := New(opts)
-	rf2, err := os.OpenFile("./test2.sst", os.O_RDONLY, 0766)
+	rf2, err := os.OpenFile(sst2, os.O_RDONLY, 0766)
 	assert.Assert(t, err == nil, err)
 	err = table2.Open(rf2)
 	assert.Assert(t, err == nil, err)
 
 	table3 := New(opts)
-	rf3, err := os.OpenFile("./test3.sst", os.O_RDONLY, 0766)
+	rf3, err := os.OpenFile(sst3, os.O_RDONLY, 0766)
 	assert.Assert(t, err == nil, err)
 	err = table3.Open(rf3)
 	assert.Assert(t, err == nil, err)
@@ -130,5 +136,8 @@ func TestTableMergingIterator(t *testing.T) {
 		}
 		miter.Next()
 	}
+	os.Remove(sst1)
+	os.Remove(sst2)
+	os.Remove(sst3)
 
 }

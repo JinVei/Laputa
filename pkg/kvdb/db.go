@@ -13,6 +13,8 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+
+	"github.com/juju/fslock"
 )
 
 type DB struct {
@@ -23,12 +25,15 @@ type DB struct {
 	mtable   *memtable.Memtable
 	immtable *memtable.Memtable
 
-	mtableLock *sync.RWMutex
-	logLock    *sync.Mutex
+	mtableLock  *sync.RWMutex
+	journalLock *sync.Mutex
 
 	maybeCompactC chan struct{}
+	exitCompactC  chan struct{}
 	closeC        chan struct{}
 	tCache        *TableCache
+	log           *os.File
+	dbLock        *fslock.Lock
 
 	blockImmCond *sync.Cond
 }
@@ -38,31 +43,53 @@ func NewDB(opts *common.Options) *DB {
 	db.opts = opts
 	db.vset = versionset.NewVersionSet(opts)
 	db.mtable = memtable.New(opts.KeyComparator)
-	//db.mtable.Ref()
 	db.mtableLock = &sync.RWMutex{}
-	db.logLock = &sync.Mutex{}
+	db.journalLock = &sync.Mutex{}
 	db.maybeCompactC = make(chan struct{}, 1)
+	db.exitCompactC = make(chan struct{}, 1)
 	db.closeC = make(chan struct{}, 1)
 
 	db.blockImmCond = sync.NewCond(db.mtableLock)
 	db.tCache = NewTableCache(opts)
 
+	db.dbLock = fslock.New(filepath.Join(db.opts.DBDir, common.GetDBLockerName()))
+
 	return db
 }
 
+// Recover try to recover last version from manifest and memtable from logfile
 func (db *DB) Recover() error {
+
+	if err := os.MkdirAll(db.opts.DBDir, 0766); err != nil && err != os.ErrExist {
+		return err
+	}
+
+	if err := db.dbLock.TryLock(); err != nil {
+		return err
+	}
+
 	err := db.vset.Recover()
 	if err != nil {
 		return err
 	}
 	err = db.recoverJournal()
+	if err != nil {
+		return err
+	}
 
 	go db.comapctCoroutine()
-	db.initSizeCompact()
+	db.updateSizeCompactPointer()
+
+	db.log, err = os.OpenFile(filepath.Join(db.opts.DBDir, common.GetLogName()), os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0766)
 
 	return err
 }
 
+func (db *DB) LOG(msg string) {
+	db.log.Write([]byte(msg + "\n"))
+}
+
+// Get seek key and return its value
 func (db *DB) Get(key []byte) ([]byte, bool) {
 	db.mtableLock.RLock()
 
@@ -70,14 +97,10 @@ func (db *DB) Get(key []byte) ([]byte, bool) {
 
 	lkey.Sequence = db.vset.LastSequence()
 	lkey.Key = key
-	//db.mtable.Ref()
 	vallue, exist := db.mtable.Get(lkey)
-	//db.mtable.Unref()
 
 	if !exist && db.immtable != nil {
-		//db.immtable.Ref()
 		vallue, exist = db.immtable.Get(lkey)
-		//db.immtable.Unref()
 	}
 	db.mtableLock.RUnlock()
 
@@ -88,6 +111,7 @@ func (db *DB) Get(key []byte) ([]byte, bool) {
 	return vallue, exist
 }
 
+// FindKVFromSST seeks key from sstables and returns its value (if existed)
 func (db *DB) findKVFromSST(key []byte) ([]byte, bool) {
 	vers := db.vset.RefVersion()
 	defer vers.Unref()
@@ -103,7 +127,7 @@ func (db *DB) findKVFromSST(key []byte) ([]byte, bool) {
 
 			sst, err := db.tCache.Get(meta.Number)
 			if err != nil {
-				fmt.Println("db.tCache.Get(meta.Number)", err)
+				db.LOG(fmt.Sprintf("FindKVFromSST: Get error from sstable cache, err=%v", err))
 			}
 			sst.Seek(key)
 			meta.AllowedSeeks++
@@ -119,6 +143,7 @@ func (db *DB) findKVFromSST(key []byte) ([]byte, bool) {
 	return nil, false
 }
 
+// Put put Key to db
 func (db *DB) Put(key, value []byte) error {
 	db.mtableLock.Lock()
 	if err := db.checkMemtableUsage(); err != nil {
@@ -130,13 +155,13 @@ func (db *DB) Put(key, value []byte) error {
 	sequence := db.vset.NextSequence()
 	entry := memtable.NewEntry(sequence, key, value, memtable.KTypeValue)
 
-	db.logLock.Lock()
+	db.journalLock.Lock()
 	err := db.journal.AddRecord(entry.Bytes())
 	if err != nil {
-		db.logLock.Unlock()
+		db.journalLock.Unlock()
 		return err
 	}
-	db.logLock.Unlock()
+	db.journalLock.Unlock()
 
 	db.mtableLock.Lock()
 	defer db.mtableLock.Unlock()
@@ -145,6 +170,7 @@ func (db *DB) Put(key, value []byte) error {
 	return nil
 }
 
+// Delete delete Key from db
 func (db *DB) Delete(key []byte) error {
 	db.mtableLock.Lock()
 	if err := db.checkMemtableUsage(); err != nil {
@@ -156,13 +182,13 @@ func (db *DB) Delete(key []byte) error {
 	sequence := db.vset.NextSequence()
 	entry := memtable.NewEntry(sequence, key, nil, memtable.KTypeDelete)
 
-	db.logLock.Lock()
+	db.journalLock.Lock()
 	err := db.journal.AddRecord(entry.Bytes())
 	if err != nil {
-		db.logLock.Unlock()
+		db.journalLock.Unlock()
 		return err
 	}
-	db.logLock.Unlock()
+	db.journalLock.Unlock()
 
 	db.mtableLock.Lock()
 	defer db.mtableLock.Unlock()
@@ -170,8 +196,6 @@ func (db *DB) Delete(key []byte) error {
 
 	return nil
 }
-
-var done = false
 
 // should lock db.mtableLock
 func (db *DB) checkMemtableUsage() error {
@@ -188,7 +212,7 @@ func (db *DB) checkMemtableUsage() error {
 			atomic.StoreUint64(&db.vset.PrevLogNumber, db.vset.LogNumber)
 			db.vset.LogNumber = db.vset.NextFileNumber()
 
-			logPath := filepath.Join(db.opts.DBDir, common.GetLogName(db.vset.LogNumber))
+			logPath := filepath.Join(db.opts.DBDir, common.GetJoutnalName(db.vset.LogNumber))
 			wlog, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0766)
 			if err != nil {
 				return err
@@ -196,6 +220,8 @@ func (db *DB) checkMemtableUsage() error {
 			db.fjournal.Close()
 			db.fjournal = wlog
 			db.journal = log.NewWriter(wlog)
+
+			db.LOG(fmt.Sprintf("New journal: number=%d", db.vset.LogNumber))
 
 			db.immtable = db.mtable
 
@@ -207,6 +233,7 @@ func (db *DB) checkMemtableUsage() error {
 	return nil
 }
 
+// SignalForDoCompact try to awake Compat Coroutine
 func (db *DB) signalForDoCompact() {
 	// signal for should do compact
 	select {
@@ -216,14 +243,16 @@ func (db *DB) signalForDoCompact() {
 	}
 }
 
+// DoMinorCompact flush memtable into sstable, and delete its logfile
 func (db *DB) doMinorCompact(mtable *memtable.Memtable, fileNumber, oldLognumber uint64) error {
+	db.LOG(fmt.Sprintf("Do minor compact: sst_number=%d, old_journal=%d", fileNumber, oldLognumber))
 	iter := mtable.Iterator()
 	var last []byte
 	if !iter.Valid() {
 		// empty log
-		err := os.Remove(filepath.Join(db.opts.DBDir, common.GetLogName(oldLognumber)))
+		err := os.Remove(filepath.Join(db.opts.DBDir, common.GetJoutnalName(oldLognumber)))
 		if err != nil {
-			fmt.Println("Get error in os.Remove:", err)
+			db.LOG(fmt.Sprintf("Do minor compact: os.remove err=%v", err))
 		}
 		return nil
 	}
@@ -268,20 +297,20 @@ func (db *DB) doMinorCompact(mtable *memtable.Memtable, fileNumber, oldLognumber
 	ve.AddFile(0, meta)
 	db.vset.LogAndApply(&ve)
 
-	currVers := db.vset.CurrentVersion() //
-	if db.opts.L0CompactTriggerNum <= len(currVers.MetaFiles[0]) {
-		currVers.CompactionScore = float64(len(currVers.MetaFiles[0])) / float64(db.opts.L0CompactTriggerNum)
-		currVers.CompactionLevel = 0
-	}
+	db.updateSizeCompactPointer()
 
-	err = os.Remove(filepath.Join(db.opts.DBDir, common.GetLogName(oldLognumber)))
+	err = os.Remove(filepath.Join(db.opts.DBDir, common.GetJoutnalName(oldLognumber)))
 	if err != nil {
-		fmt.Println("Get error in os.Remove:", err)
+		db.LOG(fmt.Sprintf("Do minor compact: remove journal err, journal_number=%d", oldLognumber))
 	}
+	db.LOG(fmt.Sprintf("Do minor compact: Done compact. sst_number=%d, old_journal=%d", fileNumber, oldLognumber))
+
+	db.cleanUnrefVersion()
 
 	return err
 }
 
+// ListLogNumbers list all logfile's number, and sort by descend
 func (db *DB) listLogNumbers() ([]int, error) {
 	dirs, err := os.ReadDir(db.opts.DBDir)
 	if err != nil {
@@ -305,7 +334,7 @@ func (db *DB) recoverJournal() error {
 	reuseLastLog := false
 	i, number := 0, 0
 	for i, number = range logNumbers {
-		logPath := filepath.Join(db.opts.DBDir, common.GetLogName(uint64(number)))
+		logPath := filepath.Join(db.opts.DBDir, common.GetJoutnalName(uint64(number)))
 		rlog, err := os.Open(logPath)
 		if err != nil {
 			return err
@@ -345,7 +374,7 @@ func (db *DB) recoverJournal() error {
 		lognumbber = db.vset.NextFileNumber()
 	}
 
-	logPath := filepath.Join(db.opts.DBDir, common.GetLogName(lognumbber))
+	logPath := filepath.Join(db.opts.DBDir, common.GetJoutnalName(lognumbber))
 	wlog, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0766)
 	if err != nil {
 		return err
@@ -366,6 +395,8 @@ func (db *DB) comapctCoroutine() {
 		case <-db.maybeCompactC:
 			db.DoComapct()
 		case <-db.closeC:
+			db.LOG("Comapct Coroutine: exit")
+			close(db.exitCompactC)
 			return
 		}
 	}
@@ -386,7 +417,7 @@ func (db *DB) DoComapct() {
 		if immtable != nil {
 			err := db.doMinorCompact(immtable, db.vset.NextFileNumber(), immLogNumber)
 			if err != nil {
-				fmt.Println("DoComapct:", err)
+				db.LOG(fmt.Sprintf("Do Comapct: Get error from doMinorCompact, err=%v", err))
 			}
 			immtable = nil
 			db.blockImmCond.Broadcast()
@@ -403,19 +434,27 @@ func (db *DB) DoComapct() {
 
 func (db *DB) Close() {
 	close(db.closeC)
+	<-db.exitCompactC
+	db.fjournal.Close()
+	db.fjournal = nil
+	db.cleanUnrefVersion()
+	db.log.Close()
+	db.dbLock.Unlock()
 }
 
-func (db *DB) doMajorCompact(compact *versionset.Compaction) {
+func (db *DB) doMajorCompact(compact *versionset.Compaction) error {
 	if compact == nil {
-		return
+		return nil
 	}
+
+	db.LOG(fmt.Sprintf("Do Major Compact: level=%d, ", compact.Level))
 
 	iters := make([]*table.Iterator, 0, len(compact.Inputs[0])+len(compact.Inputs[1]))
 	for _, in := range compact.Inputs {
 		for _, meta := range in {
 			iter, err := db.tCache.Get(meta.Number)
 			if err != nil {
-				fmt.Println(err)
+				db.LOG(fmt.Sprintf("Do Major Compact: Get error from sstable cache, err=%v", err))
 				continue
 			}
 			iters = append(iters, iter)
@@ -483,11 +522,13 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) {
 
 	ve := versionset.VersionEdit{}
 	for _, meta := range metas {
+		db.LOG(fmt.Sprintf("Do Major Compact: add new sst to version. level=%d, sst=%d ", compact.Level, meta.Number))
 		ve.AddFile(nextLevel, meta)
 	}
 	//delete
 	for i, in := range compact.Inputs {
 		for _, meta := range in {
+			db.LOG(fmt.Sprintf("Do Major Compact: remove sst from version. level=%d, sst=%d ", compact.Level, meta.Number))
 			ve.DelFile(compact.Level+i, meta.Number)
 		}
 	}
@@ -499,19 +540,13 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) {
 
 	db.vset.LogAndApply(&ve)
 
-	// vers := db.vset.CurrentVersion()
-	// levelFileSize := 0
-	// for _, meta := range vers.MetaFiles[nextLevel] {
-	// 	levelFileSize += int(meta.FileSize)
-	// }
-	// initSizeCompact
-	db.initSizeCompact()
-	// compactscore := float64(levelFileSize) / float64(db.vset.LevelTableSize(nextLevel))
-	// vers.CompactionScore = compactscore
-	// vers.CompactionLevel = nextLevel
+	db.updateSizeCompactPointer()
+
+	db.cleanUnrefVersion()
+	return nil
 }
 
-func (db *DB) initSizeCompact() {
+func (db *DB) updateSizeCompactPointer() {
 	vers := db.vset.CurrentVersion()
 	for level, metas := range vers.MetaFiles {
 		if level == 0 {
@@ -537,7 +572,37 @@ func (db *DB) initSizeCompact() {
 	}
 }
 
+func (db *DB) cleanUnrefVersion() {
+	unrefVers := db.vset.RemoveUnrefVersion()
+	vers := db.vset.CurrentVersion()
+
+	refMetas := make(map[uint64]*common.FileMetaData)
+	for _, levelMetas := range vers.MetaFiles {
+		for _, meta := range levelMetas {
+			refMetas[meta.Number] = meta
+		}
+	}
+
+	var unrefMetas []*common.FileMetaData
+	for _, v := range unrefVers {
+		for _, metas := range v.MetaFiles {
+			for _, meta := range metas {
+				if _, existed := refMetas[meta.Number]; !existed {
+					unrefMetas = append(unrefMetas, meta)
+				}
+			}
+		}
+	}
+
+	// delete unref sstable
+	for _, meta := range unrefMetas {
+		db.tCache.Delete(meta.Number)
+		sstPath := filepath.Join(db.opts.DBDir, common.GetTableName(meta.Number))
+		os.Remove(sstPath)
+		db.LOG(fmt.Sprintf("Clean Unref Version: sst_path=%s", sstPath))
+	}
+}
+
 // TODO
-// clean unuse sstable
 // LRU sstable Cache
 // filter block

@@ -9,6 +9,7 @@ require (
 	github.com/golang/protobuf v1.5.2
 	github.com/golang/snappy v0.0.4
 	github.com/gosuri/uitable v0.0.4
+	github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.10.1
