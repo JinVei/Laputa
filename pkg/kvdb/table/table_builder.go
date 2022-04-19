@@ -158,7 +158,5 @@ func (builder *TableBuilder) writeBlock(block []byte, comressed bool) (int, erro
 		return n, err
 	}
 
-	builder.file.Sync()
-
 	return len(block) + len(trailer), nil
 }

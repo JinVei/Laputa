@@ -53,7 +53,7 @@ func (r *Reader) ReadRecord() ([]byte, error) {
 }
 
 func (r *Reader) readPhysicalRecord() ([]byte, RecordType, error) {
-	if r.blkBuf.Len() < HeaderSize {
+	if r.blkBuf.Len() <= HeaderSize {
 		if !r.eof {
 			// the remain bytes less than HeaderSize. skip the tail of block
 			n, err := r.file.Read(r.blkbufBytes)

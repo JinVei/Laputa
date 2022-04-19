@@ -161,6 +161,9 @@ func (db *DB) Put(key, value []byte) error {
 		db.journalLock.Unlock()
 		return err
 	}
+	if db.opts.SyncWrites {
+		db.journal.Flush()
+	}
 	db.journalLock.Unlock()
 
 	db.mtableLock.Lock()
@@ -606,3 +609,4 @@ func (db *DB) cleanUnrefVersion() {
 // TODO
 // LRU sstable Cache
 // filter block
+// batch write

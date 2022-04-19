@@ -3,6 +3,7 @@ package log
 import (
 	"encoding/binary"
 	"hash/crc32"
+	"io"
 	"os"
 
 	"Laputa/pkg/util"
@@ -16,6 +17,8 @@ type Writer struct {
 func NewWriter(file *os.File) *Writer {
 	w := &Writer{}
 	w.dest = file
+	offset, _ := w.dest.Seek(0, io.SeekEnd)
+	w.blockOffset = int(offset) % BlockSize
 	return w
 }
 
@@ -31,7 +34,7 @@ func (w *Writer) AddRecord(record []byte) (err error) {
 
 		// There is no enough space in block to store a record
 		// So fill some trashs and skip to next block
-		if leftover < HeaderSize {
+		if leftover <= HeaderSize {
 			if 0 < leftover {
 				empyty7 := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 				w.dest.Write(empyty7[:leftover])
@@ -89,5 +92,10 @@ func (w *Writer) EmitPhysicalRecord(rtype RecordType, record []byte) error {
 		return err
 	}
 	util.Assert(n == len(record)) // todo
+	//w.dest.Sync()
+	return nil
+}
+
+func (w *Writer) Flush() error {
 	return w.dest.Sync()
 }

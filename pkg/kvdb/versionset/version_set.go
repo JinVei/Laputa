@@ -215,8 +215,9 @@ END_READ_MANIFEST:
 	if _, err := fcurrent.WriteAt([]byte(strconv.Itoa(int(newManifestNum))), 0); err != nil {
 		return err
 	}
-	os.Remove(oldmanifestPath)
+
 	fcurrent.Sync()
+	os.Remove(oldmanifestPath)
 
 	return nil
 }
