@@ -25,8 +25,8 @@ func NewTableCache(opts *common.Options) *TableCache {
 
 // Get sstbale from cache by given sstable number
 func (tc *TableCache) Get(number uint64) (*table.Iterator, error) {
-	tc.lock.RLock()
-	defer tc.lock.RUnlock()
+	tc.lock.Lock()
+	defer tc.lock.Unlock()
 
 	t, exist := tc.cache[number]
 	if !exist {
@@ -52,7 +52,7 @@ func (tc *TableCache) Delete(number uint64) {
 
 	t, exist := tc.cache[number]
 	if exist {
-		f := t.GetWritedFile()
+		f := t.GetFD()
 		f.Close()
 	}
 }

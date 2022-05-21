@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"sort"
+	"sync/atomic"
 )
 
 type LevelFileMetaDataPair struct {
@@ -232,6 +233,7 @@ func (ve *VersionEdit) DelFile(level int, number uint64) {
 func NewVersion(vset *VersionSet, oldv *Version, edit *VersionEdit) *Version {
 	v := new(Version)
 	v.vset = vset
+	v.Seq = atomic.AddUint64(&versSeq, 1)
 
 	if oldv != nil {
 		v.Comparator = oldv.Comparator
@@ -268,9 +270,14 @@ func NewVersion(vset *VersionSet, oldv *Version, edit *VersionEdit) *Version {
 
 		for level, metas := range edit.newFiles {
 			v.MetaFiles[level] = append(v.MetaFiles[level], metas...)
-
-			// descend by number
-			sort.Sort(sortMetaFile(v.MetaFiles[level]))
+			if level == 0 {
+				// descend by number
+				sort.Sort(sortMetaFileByNumber(v.MetaFiles[level]))
+			} else {
+				// sort by key
+				s := sortMetaFileByKey{v.MetaFiles[level], vset.InterKeyCompare}
+				sort.Sort(s)
+			}
 		}
 
 		for _, delf := range edit.deletedFiles {
@@ -285,17 +292,34 @@ func NewVersion(vset *VersionSet, oldv *Version, edit *VersionEdit) *Version {
 	return v
 }
 
-type sortMetaFile []*common.FileMetaData
+type sortMetaFileByNumber []*common.FileMetaData
 
-func (s sortMetaFile) Len() int {
+func (s sortMetaFileByNumber) Len() int {
 	return len(s)
 }
 
-func (s sortMetaFile) Less(i, j int) bool {
+func (s sortMetaFileByNumber) Less(i, j int) bool {
 	// descend by file number
 	return s[j].Number < s[i].Number
 }
 
-func (s sortMetaFile) Swap(i, j int) {
+func (s sortMetaFileByNumber) Swap(i, j int) {
 	s[i], s[j] = s[j], s[i]
+}
+
+type sortMetaFileByKey struct {
+	metas []*common.FileMetaData
+	cmd   common.Compare
+}
+
+func (s sortMetaFileByKey) Len() int {
+	return len(s.metas)
+}
+
+func (s sortMetaFileByKey) Less(i, j int) bool {
+	return s.cmd(s.metas[i].Smallest, s.metas[j].Smallest) <= 0
+}
+
+func (s sortMetaFileByKey) Swap(i, j int) {
+	s.metas[i], s.metas[j] = s.metas[j], s.metas[i]
 }

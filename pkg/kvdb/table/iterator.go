@@ -1,5 +1,11 @@
 package table
 
+import (
+	"Laputa/pkg/kvdb/common"
+
+	"Laputa/pkg/util"
+)
+
 type Iterator struct {
 	dataIter  *BlockIterator
 	indexIter *BlockIterator
@@ -70,7 +76,7 @@ ERROR:
 	return
 }
 
-func (iter *Iterator) Key() []byte {
+func (iter *Iterator) Key() common.InternalKey {
 	return iter.dataIter.Key()
 }
 
@@ -84,12 +90,15 @@ func (iter *Iterator) SeekToFirst() {
 }
 
 // If found target key, iter.Valid() == true, or iter.Valid() == false
+// key type is userkey
 func (iter *Iterator) Seek(key []byte) {
 	letf, right := iter.indexIter.SeektoNearest(key)
 	for i := letf; i <= right; i++ {
 		iter.indexIter.seekTo(int(iter.indexIter.restarts[i]))
 		for iter.indexIter.Valid() {
 			iter.reloadDataBlock()
+			util.AssertWithMsg(iter.err == nil, iter.err)
+
 			iter.dataIter.Seek(key)
 			if iter.dataIter.Valid() {
 				iter.valid = true

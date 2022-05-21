@@ -48,7 +48,7 @@ func (t *Table) Open(file *os.File) error {
 
 }
 
-func (t *Table) GetWritedFile() *os.File {
+func (t *Table) GetFD() *os.File {
 	return t.file
 }
 

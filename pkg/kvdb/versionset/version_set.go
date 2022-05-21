@@ -15,6 +15,9 @@ import (
 )
 
 var (
+	versSeq = uint64(0)
+)
+var (
 	ErrUnknowVersionEditTag = errors.New("ErrUnknowVersionEditTag")
 )
 
@@ -37,6 +40,7 @@ type Version struct {
 
 	vset *VersionSet
 	ref  int64
+	Seq  uint64
 }
 
 type Compaction struct {
@@ -59,10 +63,10 @@ type VersionSet struct {
 	//Lock         *sync.RWMutex
 	dummyVersion Version
 
-	manifest   *log.Writer
-	KeyCompare common.Compare
-	opts       *common.Options
-	versLock   *sync.RWMutex
+	manifest        *log.Writer
+	InterKeyCompare common.Compare
+	opts            *common.Options
+	versLock        *sync.RWMutex
 	//UserKeyCompare common.Compare
 
 }
@@ -72,7 +76,7 @@ func NewVersionSet(opts *common.Options) *VersionSet {
 	vs.dbname = opts.DBDir
 	//vs.Lock = &sync.RWMutex{}
 	vs.opts = opts
-	vs.KeyCompare = opts.KeyComparator
+	vs.InterKeyCompare = opts.InternalKeyCompare
 	vs.versLock = &sync.RWMutex{}
 
 	return vs
@@ -99,7 +103,7 @@ func (vs *VersionSet) PickCompaction() *Compaction {
 		metaFiles := vs.current.MetaFiles[level]
 		for _, f := range metaFiles {
 			if vs.CompactPointer[level] == nil ||
-				vs.KeyCompare(f.Largest, vs.CompactPointer[level]) <= 0 {
+				vs.InterKeyCompare(f.Largest, vs.CompactPointer[level]) <= 0 {
 				c.Inputs[0] = append(c.Inputs[0], f)
 				break
 			}
@@ -109,21 +113,31 @@ func (vs *VersionSet) PickCompaction() *Compaction {
 		}
 
 	} else if seekCompacttion {
-		level = vs.current.CompactionLevel
+		level = vs.current.FileToCompactLevel
 		c.Level = level
 		c.Inputs[0] = append(c.Inputs[0], vs.current.FileToCompact)
+		vs.SetSeekCompact(0, nil)
 	} else {
 		return nil
 	}
 
-	c.InputVersion = vs.current
-	c.InputVersion.Ref()
+	c.InputVersion = vs.RefVersion()
 	defer c.InputVersion.Unref()
 
 	smallest, largest := vs.GetRange(c.Inputs[0])
-	smallest, largest, c.Inputs[0] = vs.current.GetOverlappingInputs(level, smallest, largest, c.Inputs[0])
 
-	smallest, largest, c.Inputs[1] = vs.current.GetOverlappingInputs(level+1, smallest, largest, c.Inputs[1])
+	smallest, largest, c.Inputs[0] = vs.current.GetOverlappingInputs(level, smallest, largest, c.Inputs[0])
+	if c.Inputs[0] == nil {
+		return nil
+	}
+
+	if level < 11 {
+		smallest, largest, c.Inputs[1] = vs.current.GetOverlappingInputs(level+1, smallest, largest, c.Inputs[1])
+	}
+
+	if !sizeCompacttion && len(c.Inputs[0])+len(c.Inputs[1]) <= 1 {
+		return nil
+	}
 
 	vs.CompactPointer[level] = largest
 	return c
@@ -137,6 +151,9 @@ func (vs *VersionSet) LogAndApply(edit *VersionEdit) {
 
 	vs.current.prev = &vs.dummyVersion
 	vs.current.Next = vs.dummyVersion.Next
+	if vs.dummyVersion.Next != nil {
+		vs.dummyVersion.Next.prev = vs.current
+	}
 	vs.dummyVersion.Next = vs.current
 	vs.current.Unref()
 	vs.setVersion(newVersion)
@@ -228,10 +245,10 @@ func (vs *VersionSet) GetRange(inputs []*common.FileMetaData) (smallest, largest
 			largest = in.Largest
 			smallest = in.Smallest
 		}
-		if vs.KeyCompare(in.Smallest, smallest) < 0 {
+		if vs.InterKeyCompare(in.Smallest, smallest) < 0 {
 			smallest = in.Smallest
 		}
-		if 0 < vs.KeyCompare(in.Largest, largest) {
+		if 0 < vs.InterKeyCompare(in.Largest, largest) {
 			largest = in.Largest
 		}
 	}
@@ -271,17 +288,17 @@ func (v *Version) GetOverlappingInputs(level int, smallest, largest common.Inter
 	for i := 0; i < len(v.MetaFiles[level]); {
 		meta := v.MetaFiles[level][i]
 		i++
-		if smallest != nil && v.vset.KeyCompare(meta.Largest, smallest) < 0 {
+		if smallest != nil && v.vset.InterKeyCompare(meta.Largest, smallest) < 0 {
 
-		} else if largest != nil && v.vset.KeyCompare(largest, meta.Smallest) < 0 {
+		} else if largest != nil && v.vset.InterKeyCompare(largest, meta.Smallest) < 0 {
 
 		} else {
 			inputs = append(inputs, meta)
-			if smallest != nil && v.vset.KeyCompare(meta.Smallest, smallest) < 0 {
+			if smallest != nil && v.vset.InterKeyCompare(meta.Smallest, smallest) < 0 {
 				smallest = meta.Smallest
 				inputs = inputs[0:0]
 				i = 0
-			} else if largest != nil && v.vset.KeyCompare(largest, meta.Largest) < 0 {
+			} else if largest != nil && v.vset.InterKeyCompare(largest, meta.Largest) < 0 {
 				largest = meta.Largest
 				inputs = inputs[0:0]
 				i = 0
@@ -307,6 +324,20 @@ func (vs *VersionSet) recoverNextFileNumber() error {
 		}
 	}
 	return nil
+}
+
+func (vs *VersionSet) GetRefVersions() []*Version {
+	vs.versLock.RLock()
+	defer vs.versLock.RUnlock()
+	vers := append([]*Version{}, vs.current)
+	dummyVersion := vs.dummyVersion.Next
+	for dummyVersion != nil {
+		if dummyVersion.ref != 0 {
+			vers = append(vers, dummyVersion)
+		}
+		dummyVersion = dummyVersion.Next
+	}
+	return vers
 }
 
 func (vs *VersionSet) CurrentVersion() *Version {
@@ -348,6 +379,9 @@ func (vs *VersionSet) RemoveUnrefVersion() []*Version {
 		if atomic.LoadInt64(&vers.ref) == 0 {
 			unused = append(unused, vers)
 			vers.prev.Next = vers.Next
+			if vers.Next != nil {
+				vers.Next.prev = vers.prev
+			}
 		}
 	}
 	return unused

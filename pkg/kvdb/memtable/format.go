@@ -1,6 +1,7 @@
 package memtable
 
 import (
+	"Laputa/pkg/kvdb/common"
 	"bytes"
 	"encoding/binary"
 	"io"
@@ -27,7 +28,7 @@ func (e Entry) UserKey() []byte {
 	return e.buf[e.ukeyOffs : e.valueOffs-8]
 }
 
-func (e Entry) InternalKey() []byte {
+func (e Entry) InternalKey() common.InternalKey {
 	return e.buf[e.ukeyOffs:e.valueOffs]
 }
 

@@ -118,7 +118,12 @@ func (db *DB) findKVFromSST(key []byte) ([]byte, bool) {
 	for level, metas := range vers.MetaFiles {
 		for _, meta := range metas {
 			if db.opts.KeyComparator(key, meta.Smallest.UserKey()) < 0 {
-				break
+				if level != 0 {
+					// SST is sorted except in level 0
+					break
+				} else {
+					continue
+				}
 			}
 
 			if db.opts.KeyComparator(meta.Largest.UserKey(), key) < 0 {
@@ -131,7 +136,7 @@ func (db *DB) findKVFromSST(key []byte) ([]byte, bool) {
 			}
 			sst.Seek(key)
 			meta.AllowedSeeks++
-			if db.opts.MaxAllowSeek < meta.AllowedSeeks {
+			if level < 11 && db.opts.MaxAllowSeek < meta.AllowedSeeks {
 				db.vset.SetSeekCompact(level, meta)
 				db.signalForDoCompact()
 			}
@@ -275,6 +280,7 @@ func (db *DB) doMinorCompact(mtable *memtable.Memtable, fileNumber, oldLognumber
 		entry := iter.Get()
 		if last == nil {
 			last = append(last, entry.Bytes()...)
+			tbuidler.Add(entry.InternalKey(), entry.Value())
 			continue
 		}
 
@@ -515,6 +521,8 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) error {
 
 		tbuilder.Finish()
 		meta := common.NewFileMetaData(tnumber, uint64(tbuilder.EstimatedSize()), first, last)
+		first = nil
+		last = nil
 		metas = append(metas, meta)
 		if !miter.Valid() {
 			break
@@ -524,9 +532,9 @@ func (db *DB) doMajorCompact(compact *versionset.Compaction) error {
 	db.vset.CompactPointer[compact.Level] = last
 
 	ve := versionset.VersionEdit{}
-	for _, meta := range metas {
-		db.LOG(fmt.Sprintf("Do Major Compact: add new sst to version. level=%d, sst=%d ", compact.Level, meta.Number))
-		ve.AddFile(nextLevel, meta)
+	for i := 0; i < len(metas); i++ {
+		db.LOG(fmt.Sprintf("Do Major Compact: add new sst to version. level=%d, sst=%d ", compact.Level, metas[i].Number))
+		ve.AddFile(nextLevel, metas[i])
 	}
 	//delete
 	for i, in := range compact.Inputs {
@@ -577,17 +585,20 @@ func (db *DB) updateSizeCompactPointer() {
 
 func (db *DB) cleanUnrefVersion() {
 	unrefVers := db.vset.RemoveUnrefVersion()
-	vers := db.vset.CurrentVersion()
+	vers := db.vset.GetRefVersions()
 
 	refMetas := make(map[uint64]*common.FileMetaData)
-	for _, levelMetas := range vers.MetaFiles {
-		for _, meta := range levelMetas {
-			refMetas[meta.Number] = meta
+	for _, ver := range vers {
+		for _, levelMetas := range ver.MetaFiles {
+			for _, meta := range levelMetas {
+				refMetas[meta.Number] = meta
+			}
 		}
 	}
 
 	var unrefMetas []*common.FileMetaData
 	for _, v := range unrefVers {
+		db.LOG(fmt.Sprintf("Clean Unref Version: Seq=%d", v.Seq))
 		for _, metas := range v.MetaFiles {
 			for _, meta := range metas {
 				if _, existed := refMetas[meta.Number]; !existed {
@@ -602,7 +613,7 @@ func (db *DB) cleanUnrefVersion() {
 		db.tCache.Delete(meta.Number)
 		sstPath := filepath.Join(db.opts.DBDir, common.GetTableName(meta.Number))
 		os.Remove(sstPath)
-		db.LOG(fmt.Sprintf("Clean Unref Version: sst_path=%s", sstPath))
+		db.LOG(fmt.Sprintf("Clean Unref Version sst: sst_path=%s", sstPath))
 	}
 }
 

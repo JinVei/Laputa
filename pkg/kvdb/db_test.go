@@ -14,7 +14,17 @@ import (
 	"gotest.tools/assert"
 )
 
-func TestDB_A(t *testing.T) {
+func TestDB_Remove(t *testing.T) {
+	opts := common.NewDefaultOptions()
+	opts.DBDir = "./laputa_kvdb_test"
+	defer func() {
+		err := os.RemoveAll(opts.DBDir)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}()
+}
+func TestDB_B(t *testing.T) {
 	opts := common.NewDefaultOptions()
 	opts.DBDir = "./laputa_kvdb_test"
 	db := kvdb.NewDB(opts)
@@ -35,12 +45,26 @@ func TestDB_A(t *testing.T) {
 			time.Sleep(10 * time.Second)
 		}
 	}
-	db.Close()
 
-	err = os.RemoveAll(opts.DBDir)
-	if err != nil {
-		fmt.Println(err)
+	misscnt := 0
+	for i := 0; i < 500000; i++ {
+		_, ok := db.Get([]byte(strconv.Itoa(i * 100)))
+		if !ok {
+			misscnt++
+		}
 	}
+	fmt.Println("misscnt", misscnt)
+	db.Close()
+	if misscnt != 0 {
+		t.Fatal()
+	}
+
+	defer func() {
+		err = os.RemoveAll(opts.DBDir)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}()
 }
 
 var cnt = int64(0)

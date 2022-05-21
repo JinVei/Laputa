@@ -63,7 +63,7 @@ func (iter *BlockIterator) Valid() bool {
 	return iter.blkoffset <= iter.endDataOffset
 }
 
-func (iter *BlockIterator) Key() []byte {
+func (iter *BlockIterator) Key() common.InternalKey {
 	return iter.key.Bytes()
 }
 
@@ -101,7 +101,7 @@ func (iter *BlockIterator) SeektoNearest(target []byte) (left, right int) {
 	for left < right && 1 < right-left {
 		mid = (left + right) / 2
 		iter.seekTo(int(iter.restarts[mid]))
-		cmpRes := iter.compare(iter.Key(), target)
+		cmpRes := iter.compare(iter.Key().UserKey(), target)
 		if 0 < cmpRes {
 			right = mid
 		} else if cmpRes < 0 {
@@ -116,25 +116,31 @@ func (iter *BlockIterator) SeektoNearest(target []byte) (left, right int) {
 
 // if found target key, iter.Valid() == true, or iter.Valid() == false
 func (iter *BlockIterator) Seek(target []byte) {
+	if iter == nil {
+		panic("iter is nil")
+	}
 	left, right := iter.SeektoNearest(target)
 
-	rightLimit := 2 < iter.numRestarts
+	rightBoundary := right + 1
+	hasRightBoundary := uint32(rightBoundary) < iter.numRestarts
 
-	iter.seekTo(int(iter.restarts[right]))
-	if rightLimit && iter.compare(iter.Key(), target) < 0 {
-		// target large than right key.
-		// in this case mean  cant find target key in block
-		iter.blkoffset = len(iter.block) // make iter invalid
-		return
+	if hasRightBoundary {
+		iter.seekTo(int(iter.restarts[rightBoundary]))
+		if iter.compare(iter.Key().UserKey(), target) < 0 {
+			// target large than right key.
+			// in this case mean cant find target key in block
+			iter.blkoffset = len(iter.block) // make iter invalid
+			return
+		}
 	}
 
 	iter.seekTo(int(iter.restarts[left]))
 
 	for {
-		cmpRes := iter.compare(iter.Key(), target)
+		cmpRes := iter.compare(iter.Key().UserKey(), target)
 		if cmpRes == 0 {
 			return
-		} else if cmpRes < 0 && iter.Valid() && (!rightLimit || iter.blkoffset <= int(iter.restarts[right])) {
+		} else if cmpRes < 0 && iter.Valid() && (!hasRightBoundary || iter.blkoffset <= int(iter.restarts[rightBoundary])) {
 			//  iter.Key() < target
 			iter.Next()
 		} else {
