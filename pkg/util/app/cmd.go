@@ -3,12 +3,16 @@ package app
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
 // Command is a sub command structure of a cli application.
+// It is recommended that a command be created with the app.NewCommand()
+// function.
 type Command struct {
 	usage    string
 	desc     string
@@ -17,9 +21,31 @@ type Command struct {
 	runFunc  RunCommandFunc
 }
 
-type RunCommandFunc func(args []string) error
+// CommandOption defines optional parameters for initializing the command
+// structure.
 type CommandOption func(*Command)
 
+// WithCommandOptions to open the application's function to read from the
+// command line.
+func WithCommandOptions(opt CliOptions) CommandOption {
+	return func(c *Command) {
+		c.options = opt
+	}
+}
+
+// RunCommandFunc defines the application's command startup callback function.
+type RunCommandFunc func(args []string) error
+
+// WithCommandRunFunc is used to set the application's command startup callback
+// function option.
+func WithCommandRunFunc(run RunCommandFunc) CommandOption {
+	return func(c *Command) {
+		c.runFunc = run
+	}
+}
+
+// NewCommand creates a new sub command instance based on the given command name
+// and other options.
 func NewCommand(usage string, desc string, opts ...CommandOption) *Command {
 	c := &Command{
 		usage: usage,
@@ -33,10 +59,12 @@ func NewCommand(usage string, desc string, opts ...CommandOption) *Command {
 	return c
 }
 
+// AddCommand adds sub command to the current command.
 func (c *Command) AddCommand(cmd *Command) {
 	c.commands = append(c.commands, cmd)
 }
 
+// AddCommands adds multiple sub commands to the current command.
 func (c *Command) AddCommands(cmds ...*Command) {
 	c.commands = append(c.commands, cmds...)
 }
@@ -72,18 +100,13 @@ func (c *Command) runCommand(cmd *cobra.Command, args []string) {
 	}
 }
 
-// WithCommandOptions to open the application's function to read from the
-// command line.
-func WithCommandOptions(opt CliOptions) CommandOption {
-	return func(c *Command) {
-		c.options = opt
+// FormatBaseName is formatted as an executable file name under different
+// operating systems according to the given name.
+func FormatBaseName(basename string) string {
+	// Make case-insensitive and strip executable suffix if present
+	if runtime.GOOS == "windows" {
+		basename = strings.ToLower(basename)
+		basename = strings.TrimSuffix(basename, ".exe")
 	}
-}
-
-// WithCommandRunFunc is used to set the application's command startup callback
-// function option.
-func WithCommandRunFunc(run RunCommandFunc) CommandOption {
-	return func(c *Command) {
-		c.runFunc = run
-	}
+	return basename
 }

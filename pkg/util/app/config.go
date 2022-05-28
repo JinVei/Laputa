@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fatih/color"
 	"github.com/gosuri/uitable"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -20,12 +19,12 @@ func addConfigFlag(basename string, fs *pflag.FlagSet) {
 	viper.SetEnvPrefix(strings.Replace(strings.ToUpper(basename), "-", "_", -1))
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	cobra.OnInitialize(initForCobra)
+	cobra.OnInitialize(initCobra)
 	fs.StringVarP(&cfgFile, "config", "C", cfgFile,
 		"Read configuration from specified `FILE`, support JSON, TOML, YAML, HCL, or Java properties formats.")
 }
 
-func initForCobra() {
+func initCobra() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 
@@ -39,7 +38,7 @@ func initForCobra() {
 func printConfig() {
 	keys := viper.AllKeys()
 	if len(keys) > 0 {
-		fmt.Printf("%v Configuration items:\n", color.GreenString("==>"))
+		fmt.Printf("%v Configuration items:\n", progressMessage)
 		table := uitable.New()
 		table.Separator = " "
 		table.MaxColWidth = 80
@@ -49,8 +48,4 @@ func printConfig() {
 		}
 		fmt.Println(table)
 	}
-}
-
-func UnmarshalConfig(rawVal interface{}) error {
-	return viper.Unmarshal(rawVal)
 }

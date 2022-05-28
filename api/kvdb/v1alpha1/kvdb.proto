@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package laputa.kvdb.v1alpha1;
+
+option go_package = "Laputa/api/kvdb/v1alpha1";
+
+service Kvdb {
+    rpc Get(GetRequest)  returns (GetReply) {}
+    rpc Set(SetRequest) returns (SetReply) {}
+    rpc Del(DelRequest) returns (DelReply) {}
+}
+
+message GetRequest {
+    string key = 1;
+}
+
+message GetReply {
+    string value = 1;
+    bool found = 2;
+}
+
+message SetRequest {
+    string key = 1;
+    string value = 2;
+}
+
+message SetReply {
+    string value = 1; // Old value
+}
+
+
+message DelRequest {
+    string key = 1;
+}
+
+message DelReply {
+    string value = 1; // Old value
+}

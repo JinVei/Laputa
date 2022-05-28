@@ -6,8 +6,8 @@ type Options struct {
 	KeyComparator        Compare
 	InternalKeyCompare   Compare
 	TableBlockSize       int // byte
-	RestartInterval      int
-	IndexRestartInterval int
+	RestartInterval      int // SST block restart point interval
+	IndexRestartInterval int // SST index block restart point interval
 	CompressTableBlock   bool
 	DBDir                string
 	MaxMemtableSize      uint64 // byte

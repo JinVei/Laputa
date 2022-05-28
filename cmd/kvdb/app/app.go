@@ -1,18 +1,17 @@
 package app
 
 import (
-	"Laputa/cmd/raft_server/app/options"
-	"Laputa/pkg/raft/server"
+	"Laputa/cmd/kvdb/app/options"
 	"Laputa/pkg/util/app"
 	"Laputa/pkg/util/log"
 	"Laputa/pkg/util/signal"
 	"os"
 )
 
-const commandDesc = `raft-server`
+const commandDesc = `run kvdb grpc server`
 
 func New(basename string) *app.App {
-	opts := options.New(basename)
+	opts := options.New()
 	application := app.NewApp(
 		basename,
 		app.WithOptions(opts),
@@ -24,13 +23,7 @@ func New(basename string) *app.App {
 
 func run(opts *options.Options) app.RunFunc {
 	return func(basename string) error {
-		srv, err := server.New(&opts.Appconf)
-		if err != nil {
-			return err
-		}
-		if err := srv.Init(); err != nil {
-			return err
-		}
+		srv := NewKvdbGrpcServer(opts)
 		go func() {
 			if err := srv.Run(); err != nil {
 				log.Error(err, "srv.Run() return err")
@@ -39,7 +32,7 @@ func run(opts *options.Options) app.RunFunc {
 		}()
 		stopCh := signal.SetupSignalHandler()
 		<-stopCh
-		_ = srv.Close()
+		_ = srv.Shutdown()
 		return nil
 	}
 }

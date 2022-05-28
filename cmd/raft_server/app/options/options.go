@@ -2,8 +2,6 @@ package options
 
 import (
 	"Laputa/cmd/raft_server/app/config"
-	"Laputa/pkg/util/app"
-	"log"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -33,15 +31,6 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 
 // Validate will check the requirements of options
 func (o *Options) Validate() []error {
-	return nil
-}
-
-// process --config
-func (o *Options) ApplyFlags() []error {
-	err := app.UnmarshalConfig(&o.Appconf)
-	if err != nil {
-		log.Panic(err)
-	}
 	if o.Appconf.LogPath == "" {
 		o.Appconf.LogPath = o.LogPath
 	}

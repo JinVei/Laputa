@@ -8,26 +8,27 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const flagName = "version"
-const flagShortHand = "V"
-
 type value int
 
 const (
 	boolFalse value = 0
 	boolTrue  value = 1
-	allInfo   value = 3
-
-	strAllVersionInfo string = "all"
+	raw       value = 2
 )
 
-var (
-	v = boolFalse
-)
+const strRawVersion string = "raw"
+
+func (v *value) IsBoolFlag() bool {
+	return true
+}
+
+func (v *value) Get() interface{} {
+	return *v
+}
 
 func (v *value) Set(s string) error {
-	if s == strAllVersionInfo {
-		*v = allInfo
+	if s == strRawVersion {
+		*v = raw
 		return nil
 	}
 	boolVal, err := strconv.ParseBool(s)
@@ -38,7 +39,11 @@ func (v *value) Set(s string) error {
 	}
 	return err
 }
+
 func (v *value) String() string {
+	if *v == raw {
+		return strRawVersion
+	}
 	return fmt.Sprintf("%v", bool(*v == boolTrue))
 }
 
@@ -46,6 +51,13 @@ func (v *value) String() string {
 func (v *value) Type() string {
 	return "version"
 }
+
+const flagName = "version"
+const flagShortHand = "V"
+
+var (
+	v = boolFalse
+)
 
 // AddFlags registers this package's flags on arbitrary FlagSets, such that they
 // point to the same value as the global flags.
@@ -58,7 +70,7 @@ func AddFlags(fs *pflag.FlagSet) {
 // PrintAndExitIfRequested will check if the -version flag was passed and, if so,
 // print the version and exit.
 func PrintAndExitIfRequested(appName string) {
-	if v == allInfo {
+	if v == raw {
 		fmt.Printf("%s\n", Get())
 		os.Exit(0)
 	} else if v == boolTrue {
